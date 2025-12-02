@@ -1,0 +1,276 @@
+import { Router, Request, Response, NextFunction } from "express";
+import { supabaseAdmin } from "../config/supabaseClient";
+
+const router = Router();
+
+interface CreateSessionBody {
+  player_id: string;
+  protocol_id: string;
+  created_by_profile_id: string;
+  notes?: string;
+}
+
+interface SessionEntryInput {
+  protocol_step_id: string;
+  attempt_index?: number;
+  value_number?: number;
+  value_text?: string;
+  side?: string;
+}
+
+interface AddSessionEntriesBody {
+  entries: SessionEntryInput[];
+}
+
+/**
+ * Start a session for a player and protocol.
+ */
+router.post(
+  "/sessions",
+  async (req: Request<unknown, unknown, CreateSessionBody>, res: Response, next: NextFunction) => {
+    try {
+      const { player_id, protocol_id, created_by_profile_id, notes } = req.body;
+
+      if (!player_id || !protocol_id || !created_by_profile_id) {
+        return res
+          .status(400)
+          .json({ error: "player_id, protocol_id and created_by_profile_id are required" });
+      }
+
+      // Ensure player exists and is role 'player'
+      const { data: player, error: playerError } = await supabaseAdmin
+        .from("profiles")
+        .select("id, role")
+        .eq("id", player_id)
+        .single();
+
+      if (playerError) {
+        throw playerError;
+      }
+
+      if (!player || player.role !== "player") {
+        return res
+          .status(400)
+          .json({ error: "player_id must refer to a profile with role 'player'" });
+      }
+
+      // Get creator role
+      const { data: creator, error: creatorError } = await supabaseAdmin
+        .from("profiles")
+        .select("id, role")
+        .eq("id", created_by_profile_id)
+        .single();
+
+      if (creatorError) {
+        throw creatorError;
+      }
+
+      if (!creator) {
+        return res.status(400).json({ error: "created_by_profile_id not found" });
+      }
+
+      // Check protocol exists
+      const { data: protocol, error: protocolError } = await supabaseAdmin
+        .from("protocols")
+        .select("id")
+        .eq("id", protocol_id)
+        .single();
+
+      if (protocolError) {
+        throw protocolError;
+      }
+
+      if (!protocol) {
+        return res.status(400).json({ error: "protocol_id not found" });
+      }
+
+      const { data: session, error: sessionError } = await supabaseAdmin
+        .from("sessions")
+        .insert({
+          player_id,
+          protocol_id,
+          created_by_profile_id,
+          created_by_role: creator.role,
+          notes
+        })
+        .select("*")
+        .single();
+
+      if (sessionError) {
+        throw sessionError;
+      }
+
+      res.status(201).json(session);
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/**
+ * Add entries to a session.
+ */
+router.post(
+  "/sessions/:sessionId/entries",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { sessionId } = req.params;
+      const { entries } = req.body as AddSessionEntriesBody;
+
+      if (!Array.isArray(entries) || entries.length === 0) {
+        return res
+          .status(400)
+          .json({ error: "entries array is required and cannot be empty" });
+      }
+
+      // Confirm session exists
+      const { data: session, error: sessionError } = await supabaseAdmin
+        .from("sessions")
+        .select("id")
+        .eq("id", sessionId)
+        .single();
+
+      if (sessionError) {
+        throw sessionError;
+      }
+
+      if (!session) {
+        return res.status(404).json({ error: "Session not found" });
+      }
+
+      const rowsToInsert = entries.map((e) => ({
+        session_id: sessionId,
+        protocol_step_id: e.protocol_step_id,
+        attempt_index: e.attempt_index ?? 1,
+        value_number: e.value_number ?? null,
+        value_text: e.value_text ?? null,
+        side: e.side ?? null
+      }));
+
+      const { data: inserted, error: insertError } = await supabaseAdmin
+        .from("session_entries")
+        .insert(rowsToInsert)
+        .select("*");
+
+      if (insertError) {
+        throw insertError;
+      }
+
+      res.status(201).json(inserted);
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/**
+ * Mark a session as completed.
+ */
+router.post(
+  "/sessions/:sessionId/complete",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { sessionId } = req.params;
+      const { notes } = req.body as { notes?: string };
+
+      const update: Record<string, any> = {
+        status: "completed",
+        completed_at: new Date().toISOString()
+      };
+
+      if (typeof notes === "string") {
+        update.notes = notes;
+      }
+
+      const { data: session, error } = await supabaseAdmin
+        .from("sessions")
+        .update(update)
+        .eq("id", sessionId)
+        .select("*")
+        .single();
+
+      if (error) {
+        throw error;
+      }
+
+      if (!session) {
+        return res.status(404).json({ error: "Session not found" });
+      }
+
+      res.json(session);
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/**
+ * Get a session with its entries.
+ */
+router.get(
+  "/sessions/:sessionId",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { sessionId } = req.params;
+
+      const { data: session, error: sessionError } = await supabaseAdmin
+        .from("sessions")
+        .select("*")
+        .eq("id", sessionId)
+        .single();
+
+      if (sessionError) {
+        throw sessionError;
+      }
+
+      if (!session) {
+        return res.status(404).json({ error: "Session not found" });
+      }
+
+      const { data: entries, error: entriesError } = await supabaseAdmin
+        .from("session_entries")
+        .select("*")
+        .eq("session_id", sessionId)
+        .order("recorded_at", { ascending: true });
+
+      if (entriesError) {
+        throw entriesError;
+      }
+
+      res.json({
+        ...session,
+        entries: entries ?? []
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/**
+ * List sessions for a given player.
+ */
+router.get(
+  "/players/:playerId/sessions",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { playerId } = req.params;
+
+      const { data, error } = await supabaseAdmin
+        .from("sessions")
+        .select("*")
+        .eq("player_id", playerId)
+        .order("started_at", { ascending: false });
+
+      if (error) {
+        throw error;
+      }
+
+      res.json(data ?? []);
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+export default router;

@@ -9,6 +9,7 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// 👇 this is important
 app.use("/api", routes);
 
 // Error handler last

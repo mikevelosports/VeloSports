@@ -1,5 +1,30 @@
+modules = ["nodejs-20"]
 [agent]
 expertMode = true
 
 [nix]
 channel = "stable-25_05"
+
+[[ports]]
+localPort = 4000
+externalPort = 80
+
+[[ports]]
+localPort = 5173
+externalPort = 5173
+
+[userenv]
+
+[userenv.development]
+VITE_API_BASE_URL = "https://2bfe3ca3-88e6-494f-b59b-e320e377f95a-00-3ru7h0ppuyihf.kirk.replit.dev:5173/"
+
+[workflows]
+
+[[workflows.workflow]]
+name = "Backend"
+mode = "sequential"
+author = 50524114
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd backend && npm run dev"
