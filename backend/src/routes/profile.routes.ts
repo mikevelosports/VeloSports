@@ -76,6 +76,42 @@ router.post(
   }
 );
 
+// Make sure supabase is imported at the top of this file.
+// If you already have it, do NOT import it again.
+// Example import (adjust the path/name to whatever you already use):
+// import supabase from "../config/supabaseClient";
+
+router.get("/profiles/:id", async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const { data, error, status } = await supabaseAdmin
+      .from("profiles")
+      .select("*")
+      .eq("id", id)
+      .single();
+
+    if (error && status !== 406) {
+      console.error("Error fetching profile:", error);
+      return res
+        .status(500)
+        .json({ error: "Failed to fetch profile", details: error.message });
+    }
+
+    if (!data) {
+      return res.status(404).json({ error: "Profile not found" });
+    }
+
+    return res.json(data);
+  } catch (err: any) {
+    console.error("Unexpected error fetching profile:", err);
+    return res
+      .status(500)
+      .json({ error: "Unexpected error fetching profile" });
+  }
+});
+
+
 /**
  * Update profile fields (player/coach/admin).
  * Body uses snake_case to match DB columns.
@@ -91,23 +127,30 @@ router.put(
         "first_name",
         "last_name",
         "phone",
-        "birthdate",
         "address_line1",
         "address_line2",
         "city",
         "state_region",
         "postal_code",
         "country",
+        "birthdate",
         "height_cm",
         "weight_kg",
         "playing_level",
         "current_team",
+        "current_team_level",
+        "current_coach_name",
+        "current_coach_email",
         "jersey_number",
+        "positions_played",
+        "years_played",
+        "batting_avg_last_season",
         "photo_url",
         "levels_coached",
         "current_organization",
         "team_logo_url"
-      ] as const;
+      ];
+
 
       const payload: Record<string, any> = {};
       for (const field of allowedFields) {

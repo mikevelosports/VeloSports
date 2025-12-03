@@ -1,6 +1,7 @@
 // frontend/src/pages/DashboardPage.tsx
 import React, { useState } from "react";
 import { useAuth } from "../context/AuthContext";
+import ProfilePage from "./ProfilePage";
 import StartSessionPage from "./StartSessionPage";
 import LibraryPage from "./LibraryPage";
 
@@ -60,127 +61,253 @@ const DashboardPage: React.FC = () => {
       <section
         style={{
           display: "grid",
-          gridTemplateColumns: "minmax(0, 1.7fr) minmax(0, 1.3fr)",
+          gridTemplateColumns: "minmax(0, 1.6fr) minmax(0, 1.4fr)",
           gap: "1rem",
           alignItems: "stretch"
         }}
       >
-        {/* Left: Next session / CTA */}
+        {/* Left column: Next training session + Start a session */}
         <div
           style={{
-            borderRadius: "12px",
-            border: `1px solid ${CARD_BORDER}`,
-            background: CARD_BG,
-            boxShadow: CARD_SHADOW,
-            padding: "1rem"
-          }}
-        >
-          <h2
-            style={{
-              margin: "0 0 0.5rem",
-              fontSize: "1.1rem",
-              color: PRIMARY_TEXT
-            }}
-          >
-            Next up: Training Session
-          </h2>
-          <p
-            style={{
-              margin: "0 0 0.75rem",
-              fontSize: "0.9rem",
-              color: MUTED_TEXT
-            }}
-          >
-            Start your next Velo protocol to keep building bat speed and
-            exit velo. You can choose any protocol or assessments in the next
-            screen.
-          </p>
-
-          <button
-            onClick={() => setShellView("start-session")}
-            style={{
-              width: "100%",
-              padding: "0.7rem 1rem",
-              borderRadius: "999px",
-              border: "none",
-              cursor: "pointer",
-              background: ACCENT,
-              color: "#0f172a",
-              fontWeight: 600,
-              fontSize: "0.95rem",
-              marginBottom: "0.5rem"
-            }}
-          >
-            Start Session
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setActiveTab("library")}
-            style={{
-              width: "100%",
-              padding: "0.55rem 1rem",
-              borderRadius: "999px",
-              border: `1px solid ${ACCENT}`,
-              cursor: "pointer",
-              background: "transparent",
-              color: ACCENT,
-              fontWeight: 500,
-              fontSize: "0.9rem"
-            }}
-          >
-            Browse Protocol Library
-          </button>
-        </div>
-
-        {/* Right: Placeholder quick stats */}
-        <div
-          style={{
-            borderRadius: "12px",
-            border: `1px solid ${CARD_BORDER}`,
-            background: CARD_BG,
-            boxShadow: CARD_SHADOW,
-            padding: "1rem",
             display: "flex",
             flexDirection: "column",
-            gap: "0.5rem"
+            gap: "1rem"
           }}
         >
-          <h3
+          {/* Next training session */}
+          <div
             style={{
-              margin: "0 0 0.5rem",
-              fontSize: "1rem",
-              color: PRIMARY_TEXT
+              borderRadius: "12px",
+              border: `1px solid ${CARD_BORDER}`,
+              background: CARD_BG,
+              boxShadow: CARD_SHADOW,
+              padding: "1rem"
             }}
           >
-            Snapshot (coming soon)
-          </h3>
-          <p
+            <h2
+              style={{
+                margin: "0 0 0.5rem",
+                fontSize: "1.1rem",
+                color: PRIMARY_TEXT
+              }}
+            >
+              Next Training Session
+            </h2>
+            <p
+              style={{
+                margin: "0 0 0.75rem",
+                fontSize: "0.9rem",
+                color: MUTED_TEXT
+              }}
+            >
+              Once your program is set up, this will jump you straight into the
+              next recommended protocol for your{" "}
+              <strong>My Program</strong>. For now, this is a preview of where
+              that experience will live.
+            </p>
+
+            <button
+              type="button"
+              onClick={() =>
+                alert(
+                  "Next training session from your program will be wired up once My Program is built."
+                )
+              }
+              style={{
+                width: "100%",
+                padding: "0.7rem 1rem",
+                borderRadius: "999px",
+                border: "none",
+                cursor: "pointer",
+                background: ACCENT,
+                color: "#0f172a",
+                fontWeight: 600,
+                fontSize: "0.95rem"
+              }}
+            >
+              Do Next Session
+            </button>
+          </div>
+
+          {/* Start a session */}
+          <div
             style={{
-              margin: 0,
-              fontSize: "0.85rem",
-              color: MUTED_TEXT
+              borderRadius: "12px",
+              border: `1px solid ${CARD_BORDER}`,
+              background: CARD_BG,
+              boxShadow: CARD_SHADOW,
+              padding: "1rem"
             }}
           >
-            This panel will eventually show:
-          </p>
-          <ul
+            <h2
+              style={{
+                margin: "0 0 0.5rem",
+                fontSize: "1.1rem",
+                color: PRIMARY_TEXT
+              }}
+            >
+              Start a Session
+            </h2>
+            <p
+              style={{
+                margin: "0 0 0.75rem",
+                fontSize: "0.9rem",
+                color: MUTED_TEXT
+              }}
+            >
+              Choose any protocol (Overspeed, Counterweight, Power Mechanics,
+              Warm-ups, or Assessments) and run it right away.
+            </p>
+
+            <button
+              type="button"
+              onClick={() => setShellView("start-session")}
+              style={{
+                width: "100%",
+                padding: "0.7rem 1rem",
+                borderRadius: "999px",
+                border: "none",
+                cursor: "pointer",
+                background: ACCENT,
+                color: "#0f172a",
+                fontWeight: 600,
+                fontSize: "0.95rem",
+                marginBottom: "0.5rem"
+              }}
+            >
+              Choose Protocol
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab("library")}
+              style={{
+                width: "100%",
+                padding: "0.55rem 1rem",
+                borderRadius: "999px",
+                border: `1px solid ${ACCENT}`,
+                cursor: "pointer",
+                background: "transparent",
+                color: ACCENT,
+                fontWeight: 500,
+                fontSize: "0.9rem"
+              }}
+            >
+              View Protocol Library
+            </button>
+          </div>
+        </div>
+
+        {/* Right column: Badges + Bat speed gained */}
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            gap: "1rem"
+          }}
+        >
+          {/* Recent badges */}
+          <div
             style={{
-              margin: "0.35rem 0 0",
-              paddingLeft: "1.1rem",
-              fontSize: "0.85rem",
-              color: MUTED_TEXT,
-              lineHeight: 1.5
+              borderRadius: "12px",
+              border: `1px solid ${CARD_BORDER}`,
+              background: CARD_BG,
+              boxShadow: CARD_SHADOW,
+              padding: "1rem"
             }}
           >
-            <li>Last completed session</li>
-            <li>Best bat speed and exit velo</li>
-            <li>Weekly and monthly session counts</li>
-          </ul>
+            <h3
+              style={{
+                margin: "0 0 0.5rem",
+                fontSize: "1rem",
+                color: PRIMARY_TEXT
+              }}
+            >
+              Recent Badges
+            </h3>
+            <p
+              style={{
+                margin: 0,
+                fontSize: "0.85rem",
+                color: MUTED_TEXT
+              }}
+            >
+              As you complete sessions and hit milestones, your latest badges
+              will show up here.
+            </p>
+
+            <div
+              style={{
+                marginTop: "0.6rem",
+                display: "flex",
+                flexDirection: "column",
+                gap: "0.4rem",
+                fontSize: "0.8rem"
+              }}
+            >
+              {/* Placeholder items — we’ll replace with real data later */}
+              <div
+                style={{
+                  padding: "0.3rem 0.6rem",
+                  borderRadius: "999px",
+                  border: "1px dashed rgba(148,163,184,0.5)",
+                  color: MUTED_TEXT,
+                  textAlign: "center"
+                }}
+              >
+                No badges earned yet — complete a protocol to start unlocking
+                them.
+              </div>
+            </div>
+          </div>
+
+          {/* Total bat speed gained */}
+          <div
+            style={{
+              borderRadius: "12px",
+              border: `1px solid ${CARD_BORDER}`,
+              background: CARD_BG,
+              boxShadow: CARD_SHADOW,
+              padding: "1rem",
+              display: "flex",
+              flexDirection: "column",
+              gap: "0.4rem"
+            }}
+          >
+            <h3
+              style={{
+                margin: 0,
+                fontSize: "1rem",
+                color: PRIMARY_TEXT
+              }}
+            >
+              Total Bat Speed Gained
+            </h3>
+            <div
+              style={{
+                fontSize: "1.4rem",
+                fontWeight: 700,
+                color: ACCENT,
+                marginTop: "0.2rem"
+              }}
+            >
+              +0.0 mph
+            </div>
+            <p
+              style={{
+                margin: 0,
+                fontSize: "0.85rem",
+                color: MUTED_TEXT
+              }}
+            >
+              We’ll calculate this based on your baseline assessment and your most
+              recent best bat speed, across all protocols.
+            </p>
+          </div>
         </div>
       </section>
     );
   };
+
 
   const renderProgramTab = () => (
     <section
@@ -295,50 +422,8 @@ const DashboardPage: React.FC = () => {
     </section>
   );
 
-  const renderProfileTab = () => (
-    <section
-      style={{
-        borderRadius: "12px",
-        border: `1px solid ${CARD_BORDER}`,
-        background: CARD_BG,
-        boxShadow: CARD_SHADOW,
-        padding: "1rem",
-        marginTop: "0.5rem"
-      }}
-    >
-      <h2
-        style={{
-          margin: "0 0 0.5rem",
-          fontSize: "1.1rem",
-          color: PRIMARY_TEXT
-        }}
-      >
-        Profile
-      </h2>
-      <p
-        style={{
-          margin: "0 0 0.5rem",
-          fontSize: "0.9rem",
-          color: MUTED_TEXT
-        }}
-      >
-        Here we’ll let you manage:
-      </p>
-      <ul
-        style={{
-          margin: "0.25rem 0 0",
-          paddingLeft: "1.1rem",
-          fontSize: "0.85rem",
-          color: MUTED_TEXT,
-          lineHeight: 1.5
-        }}
-      >
-        <li>Basic info (height, weight, team, jersey number)</li>
-        <li>App settings and notifications</li>
-        <li>Privacy and data export</li>
-      </ul>
-    </section>
-  );
+  const renderProfileTab = () => <ProfilePage />;
+
 
   const renderTabContent = () => {
     switch (activeTab) {
