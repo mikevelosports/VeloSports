@@ -149,17 +149,15 @@ const MyProgramPage: React.FC<MyProgramPageProps> = ({
   // Program state from backend
   const [apiProgramState, setApiProgramState] =
     useState<PlayerProgramStateRow | null>(null);
-  const [programStateLoading, setProgramStateLoading] =
-    useState(false);
+  const [programStateLoading, setProgramStateLoading] = useState(false);
   const [programStateError, setProgramStateError] =
     useState<string | null>(null);
   const [totalSessionsCompleted, setTotalSessionsCompleted] =
     useState<number>(0);
+
   const [togglingExtendMaintenance, setTogglingExtendMaintenance] =
     useState(false);
-  const [togglingNextRampUp, setTogglingNextRampUp] =
-    useState(false);
-
+  const [togglingNextRampUp, setTogglingNextRampUp] = useState(false);
 
   // UI behavior for setup section
   const [settingsExpanded, setSettingsExpanded] =
@@ -173,10 +171,7 @@ const MyProgramPage: React.FC<MyProgramPageProps> = ({
 
   const initialState: ProgramState = useMemo(() => {
     if (apiProgramState) {
-      return mapProgramStateRowToEngineState(
-        apiProgramState,
-        startDate
-      );
+      return mapProgramStateRowToEngineState(apiProgramState, startDate);
     }
     // fallback if backend has no row yet
     return {
@@ -246,6 +241,7 @@ const MyProgramPage: React.FC<MyProgramPageProps> = ({
     return days.find((d) => d.date === selectedDate) ?? null;
   }, [schedule, selectedDate]);
 
+  // Flatten schedule days and sort chronologically
   const allScheduleDays = useMemo(
     () =>
       schedule.weeks
@@ -254,12 +250,13 @@ const MyProgramPage: React.FC<MyProgramPageProps> = ({
     [schedule]
   );
 
+  // Build calendar cells with leading/trailing padding so the grid
+  // reads like a normal calendar (and can span up to 3 rows)
   const calendarCells = useMemo(() => {
     if (allScheduleDays.length === 0) return [];
 
     const cells: (typeof allScheduleDays[number] | null)[] = [];
 
-    // pad the first row so the first date appears under the correct weekday
     const firstWeekdayIndex = ALL_WEEKDAYS.indexOf(
       allScheduleDays[0].weekday
     );
@@ -274,7 +271,6 @@ const MyProgramPage: React.FC<MyProgramPageProps> = ({
       cells.push(d);
     }
 
-    // pad the end so we always fill full rows of 7
     while (cells.length % 7 !== 0) {
       cells.push(null);
     }
@@ -282,7 +278,6 @@ const MyProgramPage: React.FC<MyProgramPageProps> = ({
     return cells;
   }, [allScheduleDays]);
 
-  
   const handleToggleDay = (
     value: Weekday,
     list: Weekday[],
@@ -353,9 +348,7 @@ const MyProgramPage: React.FC<MyProgramPageProps> = ({
       setSettingsExpanded(true);
       setScheduleGenerated(false);
     } catch (err: any) {
-      setProgramStateError(
-        err?.message ?? "Failed to reset program"
-      );
+      setProgramStateError(err?.message ?? "Failed to reset program");
     } finally {
       setResettingProgram(false);
     }
@@ -409,7 +402,6 @@ const MyProgramPage: React.FC<MyProgramPageProps> = ({
     }
   };
 
-  
   if (!currentProfile) return null;
 
   const fullName =
@@ -424,13 +416,13 @@ const MyProgramPage: React.FC<MyProgramPageProps> = ({
     totalSessionsCompleted > 0
       ? `${totalSessionsCompleted} sessions completed`
       : "No sessions completed yet";
+
   const isMaintenancePhase = initialState.currentPhase.startsWith("MAINT");
   const maintenanceExtensionRequested =
     !!apiProgramState?.maintenance_extension_requested;
   const nextRampUpRequested =
     !!apiProgramState?.next_ramp_up_requested;
 
-  
   return (
     <section
       style={{
@@ -557,6 +549,7 @@ const MyProgramPage: React.FC<MyProgramPageProps> = ({
               </p>
             )}
           </div>
+
           <div
             style={{
               display: "flex",
@@ -634,7 +627,9 @@ const MyProgramPage: React.FC<MyProgramPageProps> = ({
                     background: maintenanceExtensionRequested
                       ? ACCENT
                       : "#020617",
-                    color: maintenanceExtensionRequested ? "#0f172a" : PRIMARY_TEXT,
+                    color: maintenanceExtensionRequested
+                      ? "#0f172a"
+                      : PRIMARY_TEXT,
                     fontSize: "0.75rem",
                     cursor: "pointer",
                     opacity: togglingExtendMaintenance ? 0.7 : 1
@@ -673,7 +668,6 @@ const MyProgramPage: React.FC<MyProgramPageProps> = ({
               </div>
             )}
           </div>
-
         </div>
 
         {settingsExpanded && (
@@ -1002,7 +996,7 @@ const MyProgramPage: React.FC<MyProgramPageProps> = ({
                 fontSize: "0.95rem"
               }}
             >
-              Start My Program
+              Create Program
             </button>
           </>
         )}
@@ -1066,7 +1060,7 @@ const MyProgramPage: React.FC<MyProgramPageProps> = ({
 
               {calendarCells.map((day, idx) => {
                 if (!day) {
-                  // empty cell used for padding
+                  // Empty cell used for padding
                   return (
                     <div
                       key={`empty-${idx}`}
@@ -1187,8 +1181,6 @@ const MyProgramPage: React.FC<MyProgramPageProps> = ({
               })}
             </div>
 
-
-
             {/* Expanded day view */}
             {selectedDay && selectedDay.blocks.length > 0 && (
               <div
@@ -1217,7 +1209,6 @@ const MyProgramPage: React.FC<MyProgramPageProps> = ({
                   >
                     {selectedDay.date} · {weekdayLabel(selectedDay.weekday)}
                   </div>
-                  {/* Larger "Start first protocol" button removed by request */}
                 </div>
 
                 {selectedDay.isGameDay && (
