@@ -346,10 +346,11 @@ const buildBlocksForDay = (ctx: BuildSessionContext): SessionBlock[] => {
     makeBlock(
       "DYNAMIC_WARMUP",
       DURATIONS.DYNAMIC_WARMUP,
-      "Warm Up - Dynamic"
+      "Warm Up Dynamic"
     )
   );
   remaining -= DURATIONS.DYNAMIC_WARMUP;
+
 
   if (isGameDay) {
     // Game-day sessions: only warm-up + pre-game
@@ -358,12 +359,13 @@ const buildBlocksForDay = (ctx: BuildSessionContext): SessionBlock[] => {
         makeBlock(
           "PREGAME_WARMUP",
           DURATIONS.PREGAME_WARMUP,
-          "Warm Up - Pre Game"
+          "Warm Up Pre Game"
         )
       );
     }
     return blocks;
   }
+
 
   const s = ctx.state;
 

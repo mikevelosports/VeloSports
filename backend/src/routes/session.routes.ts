@@ -1,5 +1,7 @@
 import { Router, Request, Response, NextFunction } from "express";
 import { supabaseAdmin } from "../config/supabaseClient";
+import { updatePlayerProgramStateForSession } from "./programState.routes";
+
 
 const router = Router();
 
@@ -27,14 +29,20 @@ interface AddSessionEntriesBody {
  */
 router.post(
   "/sessions",
-  async (req: Request<unknown, unknown, CreateSessionBody>, res: Response, next: NextFunction) => {
+  async (
+    req: Request<unknown, unknown, CreateSessionBody>,
+    res: Response,
+    next: NextFunction
+  ) => {
     try {
-      const { player_id, protocol_id, created_by_profile_id, notes } = req.body;
+      const { player_id, protocol_id, created_by_profile_id, notes } =
+        req.body;
 
       if (!player_id || !protocol_id || !created_by_profile_id) {
-        return res
-          .status(400)
-          .json({ error: "player_id, protocol_id and created_by_profile_id are required" });
+        return res.status(400).json({
+          error:
+            "player_id, protocol_id and created_by_profile_id are required"
+        });
       }
 
       // Ensure player exists and is role 'player'
@@ -49,9 +57,9 @@ router.post(
       }
 
       if (!player || player.role !== "player") {
-        return res
-          .status(400)
-          .json({ error: "player_id must refer to a profile with role 'player'" });
+        return res.status(400).json({
+          error: "player_id must refer to a profile with role 'player'"
+        });
       }
 
       // Get creator role
@@ -66,7 +74,9 @@ router.post(
       }
 
       if (!creator) {
-        return res.status(400).json({ error: "created_by_profile_id not found" });
+        return res
+          .status(400)
+          .json({ error: "created_by_profile_id not found" });
       }
 
       // Check protocol exists
@@ -81,7 +91,9 @@ router.post(
       }
 
       if (!protocol) {
-        return res.status(400).json({ error: "protocol_id not found" });
+        return res
+          .status(400)
+          .json({ error: "protocol_id not found" });
       }
 
       const { data: session, error: sessionError } = await supabaseAdmin
@@ -118,9 +130,9 @@ router.post(
       const { entries } = req.body as AddSessionEntriesBody;
 
       if (!Array.isArray(entries) || entries.length === 0) {
-        return res
-          .status(400)
-          .json({ error: "entries array is required and cannot be empty" });
+        return res.status(400).json({
+          error: "entries array is required and cannot be empty"
+        });
       }
 
       // Confirm session exists
@@ -197,12 +209,24 @@ router.post(
         return res.status(404).json({ error: "Session not found" });
       }
 
+      // Best-effort update of program state; don't break the response if this fails
+      try {
+        await updatePlayerProgramStateForSession(sessionId);
+      } catch (stateErr) {
+        console.error(
+          "[sessions] Failed to update player_program_state for session",
+          sessionId,
+          stateErr
+        );
+      }
+
       res.json(session);
     } catch (err) {
       next(err);
     }
   }
 );
+
 
 /**
  * Get a session with its entries.

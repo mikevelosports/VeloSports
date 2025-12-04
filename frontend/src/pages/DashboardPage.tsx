@@ -20,8 +20,15 @@ type MainTab = "dashboard" | "library" | "program" | "stats" | "profile";
 
 const DashboardPage: React.FC = () => {
   const { currentProfile } = useAuth();
-  const [shellView, setShellView] = useState<"main" | "start-session">("main");
+  const [shellView, setShellView] = useState<"main" | "start-session">(
+    "main"
+  );
   const [activeTab, setActiveTab] = useState<MainTab>("dashboard");
+
+  // If we launched StartSessionPage from My Program, this holds the protocol title to auto-start.
+  const [programProtocolTitle, setProgramProtocolTitle] = useState<
+    string | null
+  >(null);
 
   if (!currentProfile) return null;
 
@@ -38,7 +45,9 @@ const DashboardPage: React.FC = () => {
         <StartSessionPage
           onBack={() => {
             setShellView("main");
+            setProgramProtocolTitle(null);
           }}
+          initialProtocolTitle={programProtocolTitle ?? undefined}
         />
       </main>
     );
@@ -102,8 +111,8 @@ const DashboardPage: React.FC = () => {
                 color: MUTED_TEXT
               }}
             >
-              Once your program is set up, this will jump you straight into the
-              next recommended protocol for your{" "}
+              Once your program is set up, this will jump you straight
+              into the next recommended protocol for your{" "}
               <strong>My Program</strong>.
             </p>
 
@@ -122,7 +131,7 @@ const DashboardPage: React.FC = () => {
                 fontSize: "0.95rem"
               }}
             >
-              Do Next Session
+              Go to My Program
             </button>
           </div>
 
@@ -152,13 +161,16 @@ const DashboardPage: React.FC = () => {
                 color: MUTED_TEXT
               }}
             >
-              Choose any protocol (Overspeed, Counterweight, Power Mechanics,
-              Warm-ups, or Assessments) and run it right away.
+              Choose any protocol (Overspeed, Counterweight, Power
+              Mechanics, Warm-ups, or Assessments) and run it right away.
             </p>
 
             <button
               type="button"
-              onClick={() => setShellView("start-session")}
+              onClick={() => {
+                setProgramProtocolTitle(null);
+                setShellView("start-session");
+              }}
               style={{
                 width: "100%",
                 padding: "0.7rem 1rem",
@@ -228,8 +240,8 @@ const DashboardPage: React.FC = () => {
                 color: MUTED_TEXT
               }}
             >
-              As you complete sessions and hit milestones, your latest badges
-              will show up here.
+              As you complete sessions and hit milestones, your latest
+              badges will show up here.
             </p>
 
             <div
@@ -241,7 +253,6 @@ const DashboardPage: React.FC = () => {
                 fontSize: "0.8rem"
               }}
             >
-              {/* Placeholder items — we’ll replace with real data later */}
               <div
                 style={{
                   padding: "0.3rem 0.6rem",
@@ -251,8 +262,8 @@ const DashboardPage: React.FC = () => {
                   textAlign: "center"
                 }}
               >
-                No badges earned yet — complete a protocol to start unlocking
-                them.
+                No badges earned yet — complete a protocol to start
+                unlocking them.
               </div>
             </div>
           </div>
@@ -296,8 +307,8 @@ const DashboardPage: React.FC = () => {
                 color: MUTED_TEXT
               }}
             >
-              We’ll calculate this based on your baseline assessment and your
-              most recent best bat speed, across all protocols.
+              We’ll calculate this based on your baseline assessment and
+              your most recent best bat speed, across all protocols.
             </p>
           </div>
         </div>
@@ -311,7 +322,13 @@ const DashboardPage: React.FC = () => {
         marginTop: "0.5rem"
       }}
     >
-      <MyProgramPage onBack={() => setActiveTab("dashboard")} />
+      <MyProgramPage
+        onBack={() => setActiveTab("dashboard")}
+        onStartProtocolFromProgram={(protocolTitle) => {
+          setProgramProtocolTitle(protocolTitle);
+          setShellView("start-session");
+        }}
+      />
     </section>
   );
 
@@ -398,8 +415,8 @@ const DashboardPage: React.FC = () => {
               color: MUTED_TEXT
             }}
           >
-            Ready to train? Use the tabs below to move between your dashboard,
-            protocols, program, stats, and profile.
+            Ready to train? Use the tabs below to move between your
+            dashboard, protocols, program, stats, and profile.
           </p>
         </div>
         <div
@@ -416,7 +433,7 @@ const DashboardPage: React.FC = () => {
         </div>
       </header>
 
-      {/* App-style nav tabs (think mobile bottom nav) */}
+      {/* App-style nav tabs */}
       <nav
         style={{
           borderRadius: "999px",

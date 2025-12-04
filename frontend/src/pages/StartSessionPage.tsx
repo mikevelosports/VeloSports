@@ -1847,11 +1847,17 @@ const TabbedSessionView: React.FC<TabbedSessionViewProps> = (props) => {
 
 interface StartSessionPageProps {
   onBack: () => void;
+  // If provided, we’ll auto-start this protocol (by title) when the page opens.
+  initialProtocolTitle?: string;
 }
+
 
 type Mode = "select" | "run" | "complete";
 
-const StartSessionPage: React.FC<StartSessionPageProps> = ({ onBack }) => {
+const StartSessionPage: React.FC<StartSessionPageProps> = ({
+  onBack,
+  initialProtocolTitle
+}) => {
   const { currentProfile } = useAuth();
   const [mode, setMode] = useState<Mode>("select");
   const [category, setCategory] = useState<CategoryKey | "all">("all");
@@ -1863,6 +1869,10 @@ const StartSessionPage: React.FC<StartSessionPageProps> = ({ onBack }) => {
   const [activeSession, setActiveSession] = useState<Session | null>(null);
   const [activeProtocol, setActiveProtocol] =
     useState<ProtocolWithSteps | null>(null);
+
+  // Track whether we've already auto-started from My Program
+  const [autoLaunchedFromProgram, setAutoLaunchedFromProgram] =
+    useState(false);
 
   useEffect(() => {
     const loadProtocols = async () => {
@@ -1882,6 +1892,41 @@ const StartSessionPage: React.FC<StartSessionPageProps> = ({ onBack }) => {
 
     loadProtocols();
   }, [category]);
+
+  // Auto-start when we come from My Program
+  useEffect(() => {
+    if (!initialProtocolTitle) return;
+    if (autoLaunchedFromProgram) return;
+    if (mode !== "select") return;
+    if (loadingProtocols || startingSession) return;
+    if (protocols.length === 0) return;
+
+    const target = initialProtocolTitle.trim().toLowerCase();
+
+    // Exact match first
+    let match =
+      protocols.find(
+        (p) => p.title.trim().toLowerCase() === target
+      ) ??
+      // Fallback: substring match
+      protocols.find((p) =>
+        p.title.trim().toLowerCase().includes(target)
+      );
+
+    if (match) {
+      setAutoLaunchedFromProgram(true);
+      // Reuse existing handler
+      handleStartForProtocol(match);
+    }
+  }, [
+    initialProtocolTitle,
+    autoLaunchedFromProgram,
+    mode,
+    loadingProtocols,
+    startingSession,
+    protocols
+  ]);
+
 
   if (!currentProfile) return null;
 
