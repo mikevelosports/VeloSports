@@ -4,6 +4,8 @@ import { useAuth } from "../context/AuthContext";
 import ProfilePage from "./ProfilePage";
 import StartSessionPage from "./StartSessionPage";
 import LibraryPage from "./LibraryPage";
+import StatsPage from "./StatsPage";
+
 
 const PRIMARY_TEXT = "#e5e7eb";
 const MUTED_TEXT = "#9ca3af";
@@ -380,47 +382,13 @@ const DashboardPage: React.FC = () => {
   const renderStatsTab = () => (
     <section
       style={{
-        borderRadius: "12px",
-        border: `1px solid ${CARD_BORDER}`,
-        background: CARD_BG,
-        boxShadow: CARD_SHADOW,
-        padding: "1rem",
         marginTop: "0.5rem"
       }}
     >
-      <h2
-        style={{
-          margin: "0 0 0.5rem",
-          fontSize: "1.1rem",
-          color: PRIMARY_TEXT
-        }}
-      >
-        My Stats
-      </h2>
-      <p
-        style={{
-          margin: "0 0 0.5rem",
-          fontSize: "0.9rem",
-          color: MUTED_TEXT
-        }}
-      >
-        This section will visualize all of the data you’re collecting:
-      </p>
-      <ul
-        style={{
-          margin: "0.25rem 0 0",
-          paddingLeft: "1.1rem",
-          fontSize: "0.85rem",
-          color: MUTED_TEXT,
-          lineHeight: 1.5
-        }}
-      >
-        <li>Bat speed and exit velo over time</li>
-        <li>Progress between assessments</li>
-        <li>Leaderboards for your teams / groups</li>
-      </ul>
+      <StatsPage onBack={() => setActiveTab("dashboard")} />
     </section>
   );
+
 
   const renderProfileTab = () => <ProfilePage />;
 

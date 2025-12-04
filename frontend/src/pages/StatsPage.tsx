@@ -9,7 +9,7 @@ import {
   type SessionCounts
 } from "../api/stats";
 
-// Match StartSessionPage theme :contentReference[oaicite:2]{index=2}
+// Match StartSessionPage theme
 const PRIMARY_TEXT = "#e5e7eb";
 const MUTED_TEXT = "#9ca3af";
 const CHIP_BG = "#0b1120";
@@ -41,7 +41,6 @@ function formatMph(value: number | null): string {
   if (value == null || Number.isNaN(value)) return "--";
   return `${value.toFixed(1)} mph`;
 }
-
 
 const LoadingCard: React.FC<{ message?: string }> = ({ message }) => (
   <section
@@ -89,8 +88,7 @@ const SessionsSummaryCard: React.FC<{ counts: SessionCounts }> = ({
         borderRadius: "12px",
         border: `1px solid ${CARD_BORDER}`,
         background: CARD_BG,
-        color: PRIMARY_TEXT,
-        marginBottom: "1rem"
+        color: PRIMARY_TEXT
       }}
     >
       <div
@@ -178,7 +176,8 @@ const SessionsSummaryCard: React.FC<{ counts: SessionCounts }> = ({
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: "minmax(0, 1.2fr) minmax(0, 2.4fr) minmax(0, 0.8fr)",
+            gridTemplateColumns:
+              "minmax(0, 1.2fr) minmax(0, 2.4fr) minmax(0, 0.8fr)",
             gap: "0.5rem",
             padding: "0.5rem 0.75rem",
             fontSize: "0.75rem",
@@ -258,11 +257,11 @@ const PlayerStatsView: React.FC<{ stats: PlayerStats }> = ({ stats }) => {
     return diff;
   };
 
+  const batSpeedGain = gains.batSpeed;
+  const exitVeloGain = gains.exitVelo;
+
   return (
     <>
-      {/* Sessions summary at the top */}
-      <SessionsSummaryCard counts={sessionCounts} />
-
       <section
         style={{
           padding: "1rem",
@@ -272,7 +271,7 @@ const PlayerStatsView: React.FC<{ stats: PlayerStats }> = ({ stats }) => {
           color: PRIMARY_TEXT
         }}
       >
-        {/* Top row: Game Bat PBs */}
+        {/* Game Bat PBs + Gains (top section) */}
         <div
           style={{
             display: "flex",
@@ -281,10 +280,11 @@ const PlayerStatsView: React.FC<{ stats: PlayerStats }> = ({ stats }) => {
             flexWrap: "wrap"
           }}
         >
+          {/* Bat Speed PB + Gain */}
           <div
             style={{
               flex: 1,
-              minWidth: "180px",
+              minWidth: "220px",
               borderRadius: "12px",
               padding: "1rem",
               background: "#020617",
@@ -304,30 +304,66 @@ const PlayerStatsView: React.FC<{ stats: PlayerStats }> = ({ stats }) => {
             </div>
             <div
               style={{
-                fontSize: "2rem",
-                fontWeight: 800,
-                lineHeight: 1.1
+                display: "flex",
+                alignItems: "baseline",
+                justifyContent: "space-between",
+                gap: "0.75rem"
               }}
             >
-              {personalBest.batSpeedMph != null
-                ? `${personalBest.batSpeedMph.toFixed(1)} mph`
-                : "--"}
+              <div
+                style={{
+                  fontSize: "2rem",
+                  fontWeight: 800,
+                  lineHeight: 1.1
+                }}
+              >
+                {personalBest.batSpeedMph != null
+                  ? `${personalBest.batSpeedMph.toFixed(1)} mph`
+                  : "--"}
+              </div>
+              <div
+                style={{
+                  textAlign: "right",
+                  fontSize: "0.85rem",
+                  color: batSpeedGain ? ACCENT : MUTED_TEXT
+                }}
+              >
+                {batSpeedGain ? (
+                  <>
+                    +{batSpeedGain.deltaMph.toFixed(1)} mph
+                    <br />
+                    ({batSpeedGain.deltaPercent.toFixed(1)}%)
+                  </>
+                ) : (
+                  <span style={{ fontSize: "0.75rem" }}>
+                    Need 2+ assessments
+                  </span>
+                )}
+              </div>
             </div>
             <div
               style={{
                 fontSize: "0.8rem",
                 color: MUTED_TEXT,
-                marginTop: "0.25rem"
+                marginTop: "0.35rem"
               }}
             >
-              Fastest bat speed from assessments using your game bat
+              Fastest bat speed from assessments using your game bat.
+              {batSpeedGain && (
+                <span>
+                  {" "}
+                  {batSpeedGain.baselineMph.toFixed(1)} →{" "}
+                  {batSpeedGain.currentMph.toFixed(1)} mph.
+                </span>
+              )}
             </div>
           </div>
 
+          {/* Exit Velo PB + Gain */}
           <div
             style={{
               flex: 1,
-              minWidth: "180px",
+              minWidth: "220px",
               borderRadius: "12px",
               padding: "1rem",
               background: "#020617",
@@ -347,115 +383,63 @@ const PlayerStatsView: React.FC<{ stats: PlayerStats }> = ({ stats }) => {
             </div>
             <div
               style={{
-                fontSize: "2rem",
-                fontWeight: 800,
-                lineHeight: 1.1
+                display: "flex",
+                alignItems: "baseline",
+                justifyContent: "space-between",
+                gap: "0.75rem"
               }}
             >
-              {personalBest.exitVeloMph != null
-                ? `${personalBest.exitVeloMph.toFixed(1)} mph`
-                : "--"}
+              <div
+                style={{
+                  fontSize: "2rem",
+                  fontWeight: 800,
+                  lineHeight: 1.1
+                }}
+              >
+                {personalBest.exitVeloMph != null
+                  ? `${personalBest.exitVeloMph.toFixed(1)} mph`
+                  : "--"}
+              </div>
+              <div
+                style={{
+                  textAlign: "right",
+                  fontSize: "0.85rem",
+                  color: exitVeloGain ? ACCENT : MUTED_TEXT
+                }}
+              >
+                {exitVeloGain ? (
+                  <>
+                    +{exitVeloGain.deltaMph.toFixed(1)} mph
+                    <br />
+                    ({exitVeloGain.deltaPercent.toFixed(1)}%)
+                  </>
+                ) : (
+                  <span style={{ fontSize: "0.75rem" }}>
+                    Need 2+ assessments
+                  </span>
+                )}
+              </div>
             </div>
             <div
               style={{
                 fontSize: "0.8rem",
                 color: MUTED_TEXT,
-                marginTop: "0.25rem"
+                marginTop: "0.35rem"
               }}
             >
-              Hardest ball hit from full assessments
+              Hardest ball hit from full assessments.
+              {exitVeloGain && (
+                <span>
+                  {" "}
+                  {exitVeloGain.baselineMph.toFixed(1)} →{" "}
+                  {exitVeloGain.currentMph.toFixed(1)} mph.
+                </span>
+              )}
             </div>
           </div>
         </div>
 
-        {/* Game bat gains card */}
-        <div
-          style={{
-            borderRadius: "12px",
-            padding: "1rem",
-            background: "#020617",
-            border: `1px solid ${CARD_BORDER}`,
-            marginBottom: "1rem"
-          }}
-        >
-          <div
-            style={{
-              fontSize: "0.8rem",
-              fontWeight: 600,
-              color: MUTED_TEXT,
-              marginBottom: "0.5rem"
-            }}
-          >
-            Game Bat Gains (Assessments)
-          </div>
-
-          {!gains.batSpeed && !gains.exitVelo && (
-            <p style={{ fontSize: "0.85rem", color: MUTED_TEXT }}>
-              Complete at least two speed assessments with your game bat to
-              unlock gains tracking.
-            </p>
-          )}
-
-          {gains.batSpeed && (
-            <div style={{ marginBottom: "0.75rem" }}>
-              <div
-                style={{
-                  fontSize: "0.85rem",
-                  fontWeight: 600,
-                  marginBottom: "0.15rem"
-                }}
-              >
-                Bat Speed
-              </div>
-              <div
-                style={{
-                  fontSize: "0.95rem",
-                  fontWeight: 700,
-                  color: ACCENT,
-                  marginBottom: "0.1rem"
-                }}
-              >
-                +{gains.batSpeed.deltaMph.toFixed(1)} mph (
-                {gains.batSpeed.deltaPercent.toFixed(1)}%)
-              </div>
-              <div style={{ fontSize: "0.8rem", color: MUTED_TEXT }}>
-                {gains.batSpeed.baselineMph.toFixed(1)} →{" "}
-                {gains.batSpeed.currentMph.toFixed(1)} mph
-              </div>
-            </div>
-          )}
-
-          {gains.exitVelo && (
-            <div>
-              <div
-                style={{
-                  fontSize: "0.85rem",
-                  fontWeight: 600,
-                  marginBottom: "0.15rem"
-                }}
-              >
-                Exit Velo
-              </div>
-              <div
-                style={{
-                  fontSize: "0.95rem",
-                  fontWeight: 700,
-                  color: ACCENT,
-                  marginBottom: "0.1rem"
-                }}
-              >
-                +{gains.exitVelo.deltaMph.toFixed(1)} mph (
-                {gains.exitVelo.deltaPercent.toFixed(1)}%)
-              </div>
-              <div style={{ fontSize: "0.8rem", color: MUTED_TEXT }}>
-                {gains.exitVelo.baselineMph.toFixed(1)} →{" "}
-                {gains.exitVelo.currentMph.toFixed(1)} mph
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Velo config PBs (dominant side) */}
+        {/* Velo Bat PBs (Dominant Side) */}
         <div
           style={{
             borderRadius: "12px",
@@ -523,7 +507,7 @@ const PlayerStatsView: React.FC<{ stats: PlayerStats }> = ({ stats }) => {
           </div>
         </div>
 
-        {/* Fastest drills per config (dominant side) */}
+        {/* Drill PBs (Fastest drills per config, dominant side) */}
         <div
           style={{
             borderRadius: "12px",
@@ -669,6 +653,11 @@ const PlayerStatsView: React.FC<{ stats: PlayerStats }> = ({ stats }) => {
           })}
         </div>
       </section>
+
+      {/* Sessions summary moved to bottom */}
+      <div style={{ marginTop: "1rem" }}>
+        <SessionsSummaryCard counts={sessionCounts} />
+      </div>
     </>
   );
 };
