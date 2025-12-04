@@ -5,7 +5,7 @@ import ProfilePage from "./ProfilePage";
 import StartSessionPage from "./StartSessionPage";
 import LibraryPage from "./LibraryPage";
 import StatsPage from "./StatsPage";
-
+import MyProgramPage from "./MyProgramPage";
 
 const PRIMARY_TEXT = "#e5e7eb";
 const MUTED_TEXT = "#9ca3af";
@@ -104,17 +104,12 @@ const DashboardPage: React.FC = () => {
             >
               Once your program is set up, this will jump you straight into the
               next recommended protocol for your{" "}
-              <strong>My Program</strong>. For now, this is a preview of where
-              that experience will live.
+              <strong>My Program</strong>.
             </p>
 
             <button
               type="button"
-              onClick={() =>
-                alert(
-                  "Next training session from your program will be wired up once My Program is built."
-                )
-              }
+              onClick={() => setActiveTab("program")}
               style={{
                 width: "100%",
                 padding: "0.7rem 1rem",
@@ -301,8 +296,8 @@ const DashboardPage: React.FC = () => {
                 color: MUTED_TEXT
               }}
             >
-              We’ll calculate this based on your baseline assessment and your most
-              recent best bat speed, across all protocols.
+              We’ll calculate this based on your baseline assessment and your
+              most recent best bat speed, across all protocols.
             </p>
           </div>
         </div>
@@ -310,72 +305,13 @@ const DashboardPage: React.FC = () => {
     );
   };
 
-
   const renderProgramTab = () => (
     <section
       style={{
-        borderRadius: "12px",
-        border: `1px solid ${CARD_BORDER}`,
-        background: CARD_BG,
-        boxShadow: CARD_SHADOW,
-        padding: "1rem",
         marginTop: "0.5rem"
       }}
     >
-      <h2
-        style={{
-          margin: "0 0 0.5rem",
-          fontSize: "1.1rem",
-          color: PRIMARY_TEXT
-        }}
-      >
-        My Program
-      </h2>
-      <p
-        style={{
-          margin: "0 0 0.5rem",
-          fontSize: "0.9rem",
-          color: MUTED_TEXT
-        }}
-      >
-        This section will eventually recommend an{" "}
-        <strong>optimal training program</strong> based on:
-      </p>
-      <ul
-        style={{
-          margin: "0.25rem 0 0",
-          paddingLeft: "1.1rem",
-          fontSize: "0.85rem",
-          color: MUTED_TEXT,
-          lineHeight: 1.5
-        }}
-      >
-        <li>Assessment results</li>
-        <li>Past protocol sessions</li>
-        <li>Your age, level, and profile info</li>
-      </ul>
-      <p
-        style={{
-          marginTop: "0.75rem",
-          fontSize: "0.85rem",
-          color: MUTED_TEXT
-        }}
-      >
-        We’ll add:
-      </p>
-      <ul
-        style={{
-          margin: "0.25rem 0 0",
-          paddingLeft: "1.1rem",
-          fontSize: "0.85rem",
-          color: MUTED_TEXT,
-          lineHeight: 1.5
-        }}
-      >
-        <li>“Protocols in my program” list</li>
-        <li>Calendar-based recommended schedule</li>
-        <li>Options to lock specific protocols into your plan</li>
-      </ul>
+      <MyProgramPage onBack={() => setActiveTab("dashboard")} />
     </section>
   );
 
@@ -389,9 +325,7 @@ const DashboardPage: React.FC = () => {
     </section>
   );
 
-
   const renderProfileTab = () => <ProfilePage />;
-
 
   const renderTabContent = () => {
     switch (activeTab) {

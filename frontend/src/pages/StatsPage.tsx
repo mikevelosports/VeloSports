@@ -27,9 +27,11 @@ const CATEGORY_LABELS: Record<ProtocolCategory, string> = {
   overspeed: "Overspeed",
   counterweight: "Counterweight",
   power_mechanics: "Power Mechanics",
+  exit_velo_application: "Exit Velo Application",
   warm_up: "Warm-up",
   assessments: "Assessments"
 };
+
 
 const veloConfigLabels: Record<VeloConfigKey, string> = {
   base_bat: "Base Bat",

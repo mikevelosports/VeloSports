@@ -5,8 +5,10 @@ export type ProtocolCategory =
   | "overspeed"
   | "counterweight"
   | "power_mechanics"
+  | "exit_velo_application"
   | "warm_up"
   | "assessments";
+
 
 export type VeloConfigKey = "base_bat" | "green_sleeve" | "full_loaded";
 export type SwingSide = "dominant" | "non_dominant";

@@ -29,6 +29,7 @@ const CARD_BG = "#020617";
 const CARD_BORDER = "rgba(148,163,184,0.4)";
 const CARD_SHADOW = "0 8px 20px rgba(0,0,0,0.35)";
 
+// Add exit_velo_application to the union
 type CategoryKey =
   | "overspeed"
   | "counterweight"
@@ -45,6 +46,7 @@ const CATEGORY_LABELS: Record<CategoryKey, string> = {
   warm_up: "Warm-up",
   assessments: "Assessments"
 };
+
 
 
 const normalizeTitle = (title: string) => title.trim().toLowerCase();
@@ -435,6 +437,10 @@ const SpeedSessionView: React.FC<SessionViewProps> = ({
     [steps]
   );
 
+  // NEW: derive column label from the step's metric_label
+  const metricLabel =
+    metricSteps[0]?.metric_label ?? "Max Bat Speed (mph)";
+  
   const [inputs, setInputs] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -583,7 +589,7 @@ const SpeedSessionView: React.FC<SessionViewProps> = ({
             <div>Velo Bat Configuration</div>
             <div>Swing Side</div>
             <div>Reps</div>
-            <div style={{ textAlign: "right" }}>Max Bat Speed (mph)</div>
+            <div style={{ textAlign: "right" }}>{metricLabel}</div>
           </div>
 
           {activeSteps.map((step, idx) => {
