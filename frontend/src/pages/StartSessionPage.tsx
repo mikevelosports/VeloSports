@@ -33,6 +33,7 @@ type CategoryKey =
   | "overspeed"
   | "counterweight"
   | "power_mechanics"
+  | "exit_velo_application"
   | "warm_up"
   | "assessments";
 
@@ -40,9 +41,11 @@ const CATEGORY_LABELS: Record<CategoryKey, string> = {
   overspeed: "Overspeed",
   counterweight: "Counterweight",
   power_mechanics: "Power Mechanics",
+  exit_velo_application: "Exit Velo Application",
   warm_up: "Warm-up",
   assessments: "Assessments"
 };
+
 
 const normalizeTitle = (title: string) => title.trim().toLowerCase();
 
@@ -126,6 +129,42 @@ const PROTOCOL_MEDIA: Record<string, ProtocolMedia> = {
       "Creating maximum speed as you deliver the bat to the ball is essential for getting maximum exit velo."
   },
 
+  // ---- Power Mechanics – Ground Force ----
+  "power mechanics ground force level 1": {
+    introText:
+      "Using the ground is very important to producing maximum power. In this protocol we will work on the basics of generating more speed from the ground up."
+    // vimeoId can be added here once you have it.
+  },
+  "power mechanics ground force level 2": {
+    introText:
+      "Pushing toward and away from the pitcher is very important to creating maximum power. This protocol will help you develop lateral force and torque."
+    // vimeoId can be added here once you have it.
+  },
+  "power mechanics ground force level 3": {
+    introText:
+      "Maxing out your vertical force and using it to help make the bat move faster is what our level 3 ground force protocol is all about."
+    // vimeoId can be added here once you have it.
+  },
+
+
+  // ---- Exit Velo Application ----
+  "exit velo application level 1": {
+    vimeoId: "1112077065",     
+    introText:
+      "Maxing out your bat speed when you are actually trying to hit a baseball is what this is all about. This protocol helps you apply your new bat speed to exit velo."
+  },
+  "exit velo application level 2": {
+    vimeoId: "1112077318",     
+    introText:
+      "Maxing out your bat speed when you are actually trying to hit a baseball is what this is all about. This protocol helps you apply your new bat speed to exit velo."
+  },
+  "exit velo application level 3": {
+    vimeoId: "1112077560",
+    introText:
+      "Maxing out your bat speed when you are actually trying to hit a baseball is what this is all about. This protocol helps you apply your new bat speed to exit velo."
+  },
+
+  
   // ---- Assessments ----
   "assessments speed full": {
     introText:
@@ -159,8 +198,9 @@ const protocolSortKey = (p: Protocol): [number, number, string] => {
     overspeed: 1,
     counterweight: 2,
     power_mechanics: 3,
-    warm_up: 4,
-    assessments: 5
+    exit_velo_application: 4,
+    warm_up: 5,
+    assessments: 6
   };
 
   const catRank = categoryOrder[p.category] ?? 99;
@@ -190,6 +230,7 @@ const protocolSortKey = (p: Protocol): [number, number, string] => {
 
   return [catRank, levelRank, title];
 };
+
 
 const ProgressBar: React.FC<{ completed: number; total: number }> = ({
   completed,
