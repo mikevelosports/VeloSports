@@ -1,330 +1,714 @@
-//sessions table structure
-
+// sessions table structure
 
 [
   {
     "column_name": "id",
     "data_type": "uuid",
-    "character_maximum_length": null,
-    "numeric_precision": null,
-    "numeric_scale": null,
+    "max_length": null,
     "is_nullable": "NO",
-    "column_default": "uuid_generate_v4()"
+    "default_value": "uuid_generate_v4()"
   },
   {
     "column_name": "player_id",
     "data_type": "uuid",
-    "character_maximum_length": null,
-    "numeric_precision": null,
-    "numeric_scale": null,
+    "max_length": null,
     "is_nullable": "NO",
-    "column_default": null
+    "default_value": null
   },
   {
     "column_name": "protocol_id",
     "data_type": "uuid",
-    "character_maximum_length": null,
-    "numeric_precision": null,
-    "numeric_scale": null,
+    "max_length": null,
     "is_nullable": "NO",
-    "column_default": null
+    "default_value": null
   },
   {
     "column_name": "created_by_profile_id",
     "data_type": "uuid",
-    "character_maximum_length": null,
-    "numeric_precision": null,
-    "numeric_scale": null,
+    "max_length": null,
     "is_nullable": "NO",
-    "column_default": null
+    "default_value": null
   },
   {
     "column_name": "created_by_role",
     "data_type": "text",
-    "character_maximum_length": null,
-    "numeric_precision": null,
-    "numeric_scale": null,
+    "max_length": null,
     "is_nullable": "NO",
-    "column_default": null
+    "default_value": null
   },
   {
     "column_name": "started_at",
     "data_type": "timestamp with time zone",
-    "character_maximum_length": null,
-    "numeric_precision": null,
-    "numeric_scale": null,
+    "max_length": null,
     "is_nullable": "NO",
-    "column_default": "now()"
+    "default_value": "now()"
   },
   {
     "column_name": "completed_at",
     "data_type": "timestamp with time zone",
-    "character_maximum_length": null,
-    "numeric_precision": null,
-    "numeric_scale": null,
+    "max_length": null,
     "is_nullable": "YES",
-    "column_default": null
+    "default_value": null
   },
   {
     "column_name": "status",
     "data_type": "text",
-    "character_maximum_length": null,
-    "numeric_precision": null,
-    "numeric_scale": null,
+    "max_length": null,
     "is_nullable": "NO",
-    "column_default": "'in_progress'::text"
+    "default_value": "'in_progress'::text"
   },
   {
     "column_name": "notes",
     "data_type": "text",
-    "character_maximum_length": null,
-    "numeric_precision": null,
-    "numeric_scale": null,
+    "max_length": null,
     "is_nullable": "YES",
-    "column_default": null
+    "default_value": null
   },
   {
     "column_name": "created_at",
     "data_type": "timestamp with time zone",
-    "character_maximum_length": null,
-    "numeric_precision": null,
-    "numeric_scale": null,
+    "max_length": null,
     "is_nullable": "NO",
-    "column_default": "now()"
+    "default_value": "now()"
   }
 ]
 
-//session_entries table structure
+// session_entries table structure
 
 [
   {
     "column_name": "id",
     "data_type": "uuid",
-    "character_maximum_length": null,
-    "numeric_precision": null,
-    "numeric_scale": null,
+    "max_length": null,
     "is_nullable": "NO",
-    "column_default": "uuid_generate_v4()"
+    "default_value": "uuid_generate_v4()"
   },
   {
     "column_name": "session_id",
     "data_type": "uuid",
-    "character_maximum_length": null,
-    "numeric_precision": null,
-    "numeric_scale": null,
+    "max_length": null,
     "is_nullable": "NO",
-    "column_default": null
+    "default_value": null
   },
   {
     "column_name": "protocol_step_id",
     "data_type": "uuid",
-    "character_maximum_length": null,
-    "numeric_precision": null,
-    "numeric_scale": null,
+    "max_length": null,
     "is_nullable": "NO",
-    "column_default": null
+    "default_value": null
   },
   {
     "column_name": "attempt_index",
     "data_type": "integer",
-    "character_maximum_length": null,
-    "numeric_precision": 32,
-    "numeric_scale": 0,
+    "max_length": null,
     "is_nullable": "NO",
-    "column_default": "1"
+    "default_value": "1"
   },
   {
     "column_name": "value_number",
     "data_type": "numeric",
-    "character_maximum_length": null,
-    "numeric_precision": null,
-    "numeric_scale": null,
+    "max_length": null,
     "is_nullable": "YES",
-    "column_default": null
+    "default_value": null
   },
   {
     "column_name": "value_text",
     "data_type": "text",
-    "character_maximum_length": null,
-    "numeric_precision": null,
-    "numeric_scale": null,
+    "max_length": null,
     "is_nullable": "YES",
-    "column_default": null
+    "default_value": null
   },
   {
     "column_name": "side",
     "data_type": "text",
-    "character_maximum_length": null,
-    "numeric_precision": null,
-    "numeric_scale": null,
+    "max_length": null,
     "is_nullable": "YES",
-    "column_default": null
+    "default_value": null
   },
   {
     "column_name": "recorded_at",
     "data_type": "timestamp with time zone",
-    "character_maximum_length": null,
-    "numeric_precision": null,
-    "numeric_scale": null,
+    "max_length": null,
     "is_nullable": "NO",
-    "column_default": "now()"
+    "default_value": "now()"
   },
   {
     "column_name": "created_at",
     "data_type": "timestamp with time zone",
-    "character_maximum_length": null,
-    "numeric_precision": null,
-    "numeric_scale": null,
+    "max_length": null,
     "is_nullable": "NO",
-    "column_default": "now()"
+    "default_value": "now()"
   }
 ]
 
-//player_swing_metrics table structure
+// session_protocol_summaries table structure
 
 [
   {
-    "column_name": "entry_id",
-    "data_type": "uuid",
-    "character_maximum_length": null,
-    "numeric_precision": null,
-    "numeric_scale": null,
-    "is_nullable": "YES",
-    "column_default": null
-  },
-  {
     "column_name": "session_id",
     "data_type": "uuid",
-    "character_maximum_length": null,
-    "numeric_precision": null,
-    "numeric_scale": null,
+    "max_length": null,
     "is_nullable": "YES",
-    "column_default": null
-  },
-  {
-    "column_name": "value_number",
-    "data_type": "numeric",
-    "character_maximum_length": null,
-    "numeric_precision": null,
-    "numeric_scale": null,
-    "is_nullable": "YES",
-    "column_default": null
-  },
-  {
-    "column_name": "recorded_at",
-    "data_type": "timestamp with time zone",
-    "character_maximum_length": null,
-    "numeric_precision": null,
-    "numeric_scale": null,
-    "is_nullable": "YES",
-    "column_default": null
+    "default_value": null
   },
   {
     "column_name": "player_id",
     "data_type": "uuid",
-    "character_maximum_length": null,
-    "numeric_precision": null,
-    "numeric_scale": null,
+    "max_length": null,
     "is_nullable": "YES",
-    "column_default": null
-  },
-  {
-    "column_name": "session_started_at",
-    "data_type": "timestamp with time zone",
-    "character_maximum_length": null,
-    "numeric_precision": null,
-    "numeric_scale": null,
-    "is_nullable": "YES",
-    "column_default": null
-  },
-  {
-    "column_name": "session_completed_at",
-    "data_type": "timestamp with time zone",
-    "character_maximum_length": null,
-    "numeric_precision": null,
-    "numeric_scale": null,
-    "is_nullable": "YES",
-    "column_default": null
-  },
-  {
-    "column_name": "session_status",
-    "data_type": "text",
-    "character_maximum_length": null,
-    "numeric_precision": null,
-    "numeric_scale": null,
-    "is_nullable": "YES",
-    "column_default": null
+    "default_value": null
   },
   {
     "column_name": "protocol_id",
     "data_type": "uuid",
-    "character_maximum_length": null,
-    "numeric_precision": null,
-    "numeric_scale": null,
+    "max_length": null,
     "is_nullable": "YES",
-    "column_default": null
+    "default_value": null
+  },
+  {
+    "column_name": "started_at",
+    "data_type": "timestamp with time zone",
+    "max_length": null,
+    "is_nullable": "YES",
+    "default_value": null
+  },
+  {
+    "column_name": "completed_at",
+    "data_type": "timestamp with time zone",
+    "max_length": null,
+    "is_nullable": "YES",
+    "default_value": null
+  },
+  {
+    "column_name": "status",
+    "data_type": "text",
+    "max_length": null,
+    "is_nullable": "YES",
+    "default_value": null
   },
   {
     "column_name": "protocol_title",
     "data_type": "text",
-    "character_maximum_length": null,
-    "numeric_precision": null,
-    "numeric_scale": null,
+    "max_length": null,
     "is_nullable": "YES",
-    "column_default": null
+    "default_value": null
   },
   {
     "column_name": "protocol_category",
     "data_type": "text",
-    "character_maximum_length": null,
-    "numeric_precision": null,
-    "numeric_scale": null,
+    "max_length": null,
     "is_nullable": "YES",
-    "column_default": null
-  },
+    "default_value": null
+  }
+]
+
+//team_memebers table structure
+
+[
   {
-    "column_name": "protocol_step_id",
+    "column_name": "id",
     "data_type": "uuid",
-    "character_maximum_length": null,
-    "numeric_precision": null,
-    "numeric_scale": null,
-    "is_nullable": "YES",
-    "column_default": null
+    "max_length": null,
+    "is_nullable": "NO",
+    "default_value": "gen_random_uuid()"
   },
   {
-    "column_name": "step_title",
-    "data_type": "text",
-    "character_maximum_length": null,
-    "numeric_precision": null,
-    "numeric_scale": null,
-    "is_nullable": "YES",
-    "column_default": null
+    "column_name": "team_id",
+    "data_type": "uuid",
+    "max_length": null,
+    "is_nullable": "NO",
+    "default_value": null
   },
   {
-    "column_name": "metric_key",
-    "data_type": "text",
-    "character_maximum_length": null,
-    "numeric_precision": null,
-    "numeric_scale": null,
-    "is_nullable": "YES",
-    "column_default": null
+    "column_name": "profile_id",
+    "data_type": "uuid",
+    "max_length": null,
+    "is_nullable": "NO",
+    "default_value": null
   },
   {
-    "column_name": "velo_config",
+    "column_name": "member_role",
     "data_type": "text",
-    "character_maximum_length": null,
-    "numeric_precision": null,
-    "numeric_scale": null,
-    "is_nullable": "YES",
-    "column_default": null
+    "max_length": null,
+    "is_nullable": "NO",
+    "default_value": null
   },
   {
-    "column_name": "swing_type",
-    "data_type": "text",
-    "character_maximum_length": null,
-    "numeric_precision": null,
-    "numeric_scale": null,
+    "column_name": "is_owner",
+    "data_type": "boolean",
+    "max_length": null,
+    "is_nullable": "NO",
+    "default_value": "false"
+  },
+  {
+    "column_name": "invited_by_profile_id",
+    "data_type": "uuid",
+    "max_length": null,
     "is_nullable": "YES",
-    "column_default": null
+    "default_value": null
+  },
+  {
+    "column_name": "accepted_at",
+    "data_type": "timestamp with time zone",
+    "max_length": null,
+    "is_nullable": "YES",
+    "default_value": null
+  },
+  {
+    "column_name": "created_at",
+    "data_type": "timestamp with time zone",
+    "max_length": null,
+    "is_nullable": "NO",
+    "default_value": "now()"
+  }
+]
+
+//profiles table structure
+
+[
+  {
+    "column_name": "id",
+    "data_type": "uuid",
+    "max_length": null,
+    "is_nullable": "NO",
+    "default_value": "uuid_generate_v4()"
+  },
+  {
+    "column_name": "auth_user_id",
+    "data_type": "uuid",
+    "max_length": null,
+    "is_nullable": "YES",
+    "default_value": null
+  },
+  {
+    "column_name": "role",
+    "data_type": "text",
+    "max_length": null,
+    "is_nullable": "NO",
+    "default_value": null
+  },
+  {
+    "column_name": "email",
+    "data_type": "text",
+    "max_length": null,
+    "is_nullable": "YES",
+    "default_value": null
+  },
+  {
+    "column_name": "first_name",
+    "data_type": "text",
+    "max_length": null,
+    "is_nullable": "YES",
+    "default_value": null
+  },
+  {
+    "column_name": "last_name",
+    "data_type": "text",
+    "max_length": null,
+    "is_nullable": "YES",
+    "default_value": null
+  },
+  {
+    "column_name": "phone",
+    "data_type": "text",
+    "max_length": null,
+    "is_nullable": "YES",
+    "default_value": null
+  },
+  {
+    "column_name": "address_line1",
+    "data_type": "text",
+    "max_length": null,
+    "is_nullable": "YES",
+    "default_value": null
+  },
+  {
+    "column_name": "address_line2",
+    "data_type": "text",
+    "max_length": null,
+    "is_nullable": "YES",
+    "default_value": null
+  },
+  {
+    "column_name": "city",
+    "data_type": "text",
+    "max_length": null,
+    "is_nullable": "YES",
+    "default_value": null
+  },
+  {
+    "column_name": "state_region",
+    "data_type": "text",
+    "max_length": null,
+    "is_nullable": "YES",
+    "default_value": null
+  },
+  {
+    "column_name": "postal_code",
+    "data_type": "text",
+    "max_length": null,
+    "is_nullable": "YES",
+    "default_value": null
+  },
+  {
+    "column_name": "country",
+    "data_type": "text",
+    "max_length": null,
+    "is_nullable": "YES",
+    "default_value": null
+  },
+  {
+    "column_name": "birthdate",
+    "data_type": "date",
+    "max_length": null,
+    "is_nullable": "YES",
+    "default_value": null
+  },
+  {
+    "column_name": "height_cm",
+    "data_type": "numeric",
+    "max_length": null,
+    "is_nullable": "YES",
+    "default_value": null
+  },
+  {
+    "column_name": "weight_kg",
+    "data_type": "numeric",
+    "max_length": null,
+    "is_nullable": "YES",
+    "default_value": null
+  },
+  {
+    "column_name": "playing_level",
+    "data_type": "text",
+    "max_length": null,
+    "is_nullable": "YES",
+    "default_value": null
+  },
+  {
+    "column_name": "current_team",
+    "data_type": "text",
+    "max_length": null,
+    "is_nullable": "YES",
+    "default_value": null
+  },
+  {
+    "column_name": "jersey_number",
+    "data_type": "text",
+    "max_length": null,
+    "is_nullable": "YES",
+    "default_value": null
+  },
+  {
+    "column_name": "photo_url",
+    "data_type": "text",
+    "max_length": null,
+    "is_nullable": "YES",
+    "default_value": null
+  },
+  {
+    "column_name": "levels_coached",
+    "data_type": "ARRAY",
+    "max_length": null,
+    "is_nullable": "YES",
+    "default_value": null
+  },
+  {
+    "column_name": "current_organization",
+    "data_type": "text",
+    "max_length": null,
+    "is_nullable": "YES",
+    "default_value": null
+  },
+  {
+    "column_name": "team_logo_url",
+    "data_type": "text",
+    "max_length": null,
+    "is_nullable": "YES",
+    "default_value": null
+  },
+  {
+    "column_name": "created_at",
+    "data_type": "timestamp with time zone",
+    "max_length": null,
+    "is_nullable": "NO",
+    "default_value": "now()"
+  },
+  {
+    "column_name": "updated_at",
+    "data_type": "timestamp with time zone",
+    "max_length": null,
+    "is_nullable": "NO",
+    "default_value": "now()"
+  },
+  {
+    "column_name": "current_team_level",
+    "data_type": "text",
+    "max_length": null,
+    "is_nullable": "YES",
+    "default_value": null
+  },
+  {
+    "column_name": "current_coach_name",
+    "data_type": "text",
+    "max_length": null,
+    "is_nullable": "YES",
+    "default_value": null
+  },
+  {
+    "column_name": "current_coach_email",
+    "data_type": "text",
+    "max_length": null,
+    "is_nullable": "YES",
+    "default_value": null
+  },
+  {
+    "column_name": "positions_played",
+    "data_type": "ARRAY",
+    "max_length": null,
+    "is_nullable": "YES",
+    "default_value": null
+  },
+  {
+    "column_name": "years_played",
+    "data_type": "integer",
+    "max_length": null,
+    "is_nullable": "YES",
+    "default_value": null
+  },
+  {
+    "column_name": "batting_avg_last_season",
+    "data_type": "numeric",
+    "max_length": null,
+    "is_nullable": "YES",
+    "default_value": null
+  }
+]
+
+//teams table structure
+
+[
+  {
+    "column_name": "id",
+    "data_type": "uuid",
+    "max_length": null,
+    "is_nullable": "NO",
+    "default_value": "gen_random_uuid()"
+  },
+  {
+    "column_name": "owner_profile_id",
+    "data_type": "uuid",
+    "max_length": null,
+    "is_nullable": "NO",
+    "default_value": null
+  },
+  {
+    "column_name": "name",
+    "data_type": "text",
+    "max_length": null,
+    "is_nullable": "NO",
+    "default_value": null
+  },
+  {
+    "column_name": "age_group",
+    "data_type": "text",
+    "max_length": null,
+    "is_nullable": "YES",
+    "default_value": null
+  },
+  {
+    "column_name": "level",
+    "data_type": "text",
+    "max_length": null,
+    "is_nullable": "YES",
+    "default_value": null
+  },
+  {
+    "column_name": "organization",
+    "data_type": "text",
+    "max_length": null,
+    "is_nullable": "YES",
+    "default_value": null
+  },
+  {
+    "column_name": "info",
+    "data_type": "text",
+    "max_length": null,
+    "is_nullable": "YES",
+    "default_value": null
+  },
+  {
+    "column_name": "logo_url",
+    "data_type": "text",
+    "max_length": null,
+    "is_nullable": "YES",
+    "default_value": null
+  },
+  {
+    "column_name": "created_at",
+    "data_type": "timestamp with time zone",
+    "max_length": null,
+    "is_nullable": "NO",
+    "default_value": "now()"
+  },
+  {
+    "column_name": "updated_at",
+    "data_type": "timestamp with time zone",
+    "max_length": null,
+    "is_nullable": "NO",
+    "default_value": "now()"
+  }
+]
+
+
+//player_program_state table structure
+
+[
+  {
+    "column_name": "player_id",
+    "data_type": "uuid",
+    "max_length": null,
+    "is_nullable": "NO",
+    "default_value": null
+  },
+  {
+    "column_name": "current_phase",
+    "data_type": "text",
+    "max_length": null,
+    "is_nullable": "NO",
+    "default_value": null
+  },
+  {
+    "column_name": "phase_start_date",
+    "data_type": "date",
+    "max_length": null,
+    "is_nullable": "NO",
+    "default_value": null
+  },
+  {
+    "column_name": "program_start_date",
+    "data_type": "date",
+    "max_length": null,
+    "is_nullable": "NO",
+    "default_value": null
+  },
+  {
+    "column_name": "total_overspeed_sessions",
+    "data_type": "integer",
+    "max_length": null,
+    "is_nullable": "NO",
+    "default_value": "0"
+  },
+  {
+    "column_name": "overspeed_sessions_in_current_phase",
+    "data_type": "integer",
+    "max_length": null,
+    "is_nullable": "NO",
+    "default_value": "0"
+  },
+  {
+    "column_name": "total_counterweight_sessions",
+    "data_type": "integer",
+    "max_length": null,
+    "is_nullable": "NO",
+    "default_value": "0"
+  },
+  {
+    "column_name": "ground_force_sessions_by_level",
+    "data_type": "jsonb",
+    "max_length": null,
+    "is_nullable": "NO",
+    "default_value": "'{}'::jsonb"
+  },
+  {
+    "column_name": "sequencing_sessions_by_level",
+    "data_type": "jsonb",
+    "max_length": null,
+    "is_nullable": "NO",
+    "default_value": "'{}'::jsonb"
+  },
+  {
+    "column_name": "exit_velo_sessions_by_level",
+    "data_type": "jsonb",
+    "max_length": null,
+    "is_nullable": "NO",
+    "default_value": "'{}'::jsonb"
+  },
+  {
+    "column_name": "last_full_assessment_date",
+    "data_type": "date",
+    "max_length": null,
+    "is_nullable": "YES",
+    "default_value": null
+  },
+  {
+    "column_name": "last_quick_assessment_date",
+    "data_type": "date",
+    "max_length": null,
+    "is_nullable": "YES",
+    "default_value": null
+  },
+  {
+    "column_name": "needs_ground_force",
+    "data_type": "boolean",
+    "max_length": null,
+    "is_nullable": "NO",
+    "default_value": "false"
+  },
+  {
+    "column_name": "needs_sequencing",
+    "data_type": "boolean",
+    "max_length": null,
+    "is_nullable": "NO",
+    "default_value": "false"
+  },
+  {
+    "column_name": "needs_exit_velo",
+    "data_type": "boolean",
+    "max_length": null,
+    "is_nullable": "NO",
+    "default_value": "false"
+  },
+  {
+    "column_name": "needs_bat_delivery",
+    "data_type": "boolean",
+    "max_length": null,
+    "is_nullable": "NO",
+    "default_value": "false"
+  },
+  {
+    "column_name": "created_at",
+    "data_type": "timestamp with time zone",
+    "max_length": null,
+    "is_nullable": "NO",
+    "default_value": "now()"
+  },
+  {
+    "column_name": "updated_at",
+    "data_type": "timestamp with time zone",
+    "max_length": null,
+    "is_nullable": "NO",
+    "default_value": "now()"
+  },
+  {
+    "column_name": "total_sessions_completed",
+    "data_type": "integer",
+    "max_length": null,
+    "is_nullable": "NO",
+    "default_value": "0"
+  },
+  {
+    "column_name": "maintenance_extension_requested",
+    "data_type": "boolean",
+    "max_length": null,
+    "is_nullable": "NO",
+    "default_value": "false"
+  },
+  {
+    "column_name": "next_ramp_up_requested",
+    "data_type": "boolean",
+    "max_length": null,
+    "is_nullable": "NO",
+    "default_value": "false"
   }
 ]

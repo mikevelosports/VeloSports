@@ -26,7 +26,13 @@ interface MyProgramPageProps {
   onBack: () => void;
   // Called whenever the user hits a “Start session” button in the program view
   onStartProtocolFromProgram: (protocolTitle: string) => void;
+  /**
+   * When provided (e.g. from a parent/coach account),
+   * use this player id as the "target" for program state.
+   */
+  playerIdOverride?: string;
 }
+
 
 const ALL_WEEKDAYS: Weekday[] = [
   "sun",
@@ -123,11 +129,16 @@ const phaseLabel = (phase: ProgramState["currentPhase"]): string => {
   return phase;
 };
 
-const MyProgramPage: React.FC<MyProgramPageProps> = ({
-  onBack,
-  onStartProtocolFromProgram
-}) => {
-  const { currentProfile } = useAuth();
+  const MyProgramPage: React.FC<MyProgramPageProps> = ({
+    onBack,
+    onStartProtocolFromProgram,
+    playerIdOverride
+  }) => {
+    const { currentProfile } = useAuth();
+
+    // this is the player whose program we’re looking at
+    const targetPlayerId = playerIdOverride ?? currentProfile?.id;
+
 
   const [age, setAge] = useState<number>(14);
   const [inSeason, setInSeason] = useState<boolean>(false);
@@ -293,114 +304,119 @@ const MyProgramPage: React.FC<MyProgramPageProps> = ({
   };
 
   // Load program state from backend
-  useEffect(() => {
-    if (!currentProfile) return;
+    useEffect(() => {
+      if (!targetPlayerId) return;
 
-    const load = async () => {
+      const load = async (playerId: string) => {
+        try {
+          setProgramStateLoading(true);
+          setProgramStateError(null);
+
+          const row = await fetchPlayerProgramState(playerId);
+          setApiProgramState(row);
+
+          if (row?.total_sessions_completed != null) {
+            setTotalSessionsCompleted(row.total_sessions_completed);
+          } else {
+            setTotalSessionsCompleted(0);
+          }
+
+          if (row?.program_start_date) {
+            setStartDate(row.program_start_date);
+          }
+
+          if (row) {
+            setHasCompletedInitialSetup(true);
+            setSettingsExpanded(false);
+            setScheduleGenerated(true); // they already have a running program
+          }
+        } catch (err: any) {
+          setProgramStateError(
+            err?.message ?? "Failed to load program status"
+          );
+        } finally {
+          setProgramStateLoading(false);
+        }
+      };
+
+      load(targetPlayerId);
+    }, [targetPlayerId]);
+
+
+    const handleResetProgram = async () => {
+      if (!targetPlayerId) return;
+
       try {
-        setProgramStateLoading(true);
+        setResettingProgram(true);
         setProgramStateError(null);
 
-        const row = await fetchPlayerProgramState(currentProfile.id);
+        const row = await resetPlayerProgramState(targetPlayerId);
+        const start = row.program_start_date ?? todayIso();
+        setStartDate(start);
+        setTotalSessionsCompleted(row.total_sessions_completed ?? 0);
+
+        setHasCompletedInitialSetup(true);
+        setSettingsExpanded(true);
+        setScheduleGenerated(false);
+      } catch (err: any) {
+        setProgramStateError(err?.message ?? "Failed to reset program");
+      } finally {
+        setResettingProgram(false);
+      }
+    };
+
+
+    const handleToggleExtendMaintenance = async () => {
+      if (!targetPlayerId) return;
+
+      try {
+        setTogglingExtendMaintenance(true);
+        setProgramStateError(null);
+
+        const row = await extendMaintenancePhase(targetPlayerId);
         setApiProgramState(row);
 
         if (row?.total_sessions_completed != null) {
           setTotalSessionsCompleted(row.total_sessions_completed);
-        } else {
-          setTotalSessionsCompleted(0);
         }
-
         if (row?.program_start_date) {
           setStartDate(row.program_start_date);
         }
-
-        if (row) {
-          setHasCompletedInitialSetup(true);
-          setSettingsExpanded(false);
-          setScheduleGenerated(true); // they already have a running program
-        }
       } catch (err: any) {
         setProgramStateError(
-          err?.message ?? "Failed to load program status"
+          err?.message ?? "Failed to update maintenance setting"
         );
       } finally {
-        setProgramStateLoading(false);
+        setTogglingExtendMaintenance(false);
       }
     };
 
-    load();
-  }, [currentProfile]);
 
-  const handleResetProgram = async () => {
-    if (!currentProfile) return;
-    try {
-      setResettingProgram(true);
-      setProgramStateError(null);
+    const handleToggleNextRampUp = async () => {
+      if (!targetPlayerId) return;
 
-      const row = await resetPlayerProgramState(currentProfile.id);
-      setApiProgramState(row);
+      try {
+        setTogglingNextRampUp(true);
+        setProgramStateError(null);
 
-      const start = row.program_start_date ?? todayIso();
-      setStartDate(start);
-      setTotalSessionsCompleted(row.total_sessions_completed ?? 0);
+        const row = await startNextRampUpPhase(targetPlayerId);
+        setApiProgramState(row);
 
-      setHasCompletedInitialSetup(true);
-      setSettingsExpanded(true);
-      setScheduleGenerated(false);
-    } catch (err: any) {
-      setProgramStateError(err?.message ?? "Failed to reset program");
-    } finally {
-      setResettingProgram(false);
-    }
-  };
-
-  const handleToggleExtendMaintenance = async () => {
-    if (!currentProfile) return;
-    try {
-      setTogglingExtendMaintenance(true);
-      setProgramStateError(null);
-
-      const row = await extendMaintenancePhase(currentProfile.id);
-      setApiProgramState(row);
-
-      if (row?.total_sessions_completed != null) {
-        setTotalSessionsCompleted(row.total_sessions_completed);
+        if (row?.total_sessions_completed != null) {
+          setTotalSessionsCompleted(row.total_sessions_completed);
+        }
+        if (row?.program_start_date) {
+          setStartDate(row.program_start_date);
+        }
+      } catch (err: any) {
+        setProgramStateError(
+          err?.message ?? "Failed to update ramp-up setting"
+        );
+      } finally {
+        setTogglingNextRampUp(false);
       }
-      if (row?.program_start_date) {
-        setStartDate(row.program_start_date);
-      }
-    } catch (err: any) {
-      setProgramStateError(
-        err?.message ?? "Failed to update maintenance setting"
-      );
-    } finally {
-      setTogglingExtendMaintenance(false);
-    }
-  };
+    };
 
-  const handleToggleNextRampUp = async () => {
-    if (!currentProfile) return;
-    try {
-      setTogglingNextRampUp(true);
-      setProgramStateError(null);
-
-      const row = await startNextRampUpPhase(currentProfile.id);
-      setApiProgramState(row);
-
-      if (row?.total_sessions_completed != null) {
-        setTotalSessionsCompleted(row.total_sessions_completed);
-      }
-      if (row?.program_start_date) {
-        setStartDate(row.program_start_date);
-      }
-    } catch (err: any) {
-      setProgramStateError(
-        err?.message ?? "Failed to update ramp-up setting"
-      );
-    } finally {
-      setTogglingNextRampUp(false);
-    }
-  };
 
   if (!currentProfile) return null;
 

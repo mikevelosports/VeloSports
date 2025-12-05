@@ -19,8 +19,12 @@ const CARD_BG = "#020617";
 const CARD_BORDER = "rgba(148,163,184,0.4)";
 const CARD_SHADOW = "0 8px 20px rgba(0,0,0,0.35)";
 
-interface StatsPageProps {
+export interface StatsPageProps {
   onBack: () => void;
+  /** When provided, show stats for this player instead of the logged‑in profile */
+  playerIdOverride?: string;
+  /** Label used in the back button text, defaults to "dashboard" */
+  backLabel?: string;
 }
 
 const CATEGORY_LABELS: Record<ProtocolCategory, string> = {
@@ -31,7 +35,6 @@ const CATEGORY_LABELS: Record<ProtocolCategory, string> = {
   warm_up: "Warm-up",
   assessments: "Assessments"
 };
-
 
 const veloConfigLabels: Record<VeloConfigKey, string> = {
   base_bat: "Base Bat",
@@ -264,15 +267,8 @@ const PlayerStatsView: React.FC<{ stats: PlayerStats }> = ({ stats }) => {
 
   return (
     <>
-      <section
-        style={{
-          padding: "1rem",
-          borderRadius: "12px",
-          border: `1px solid ${CARD_BORDER}`,
-          background: CARD_BG,
-          color: PRIMARY_TEXT
-        }}
-      >
+      {/* Top stats + velo bat section (no extra outer card) */}
+      <div style={{ marginBottom: "1rem" }}>
         {/* Game Bat PBs + Gains (top section) */}
         <div
           style={{
@@ -302,7 +298,7 @@ const PlayerStatsView: React.FC<{ stats: PlayerStats }> = ({ stats }) => {
                 marginBottom: "0.25rem"
               }}
             >
-              Game Bat Bat Speed PB
+              Game Bat Speed PB
             </div>
             <div
               style={{
@@ -326,7 +322,8 @@ const PlayerStatsView: React.FC<{ stats: PlayerStats }> = ({ stats }) => {
               <div
                 style={{
                   textAlign: "right",
-                  fontSize: "0.85rem",
+                  fontSize: "1rem",
+                  fontWeight: 600,
                   color: batSpeedGain ? ACCENT : MUTED_TEXT
                 }}
               >
@@ -337,27 +334,11 @@ const PlayerStatsView: React.FC<{ stats: PlayerStats }> = ({ stats }) => {
                     ({batSpeedGain.deltaPercent.toFixed(1)}%)
                   </>
                 ) : (
-                  <span style={{ fontSize: "0.75rem" }}>
+                  <span style={{ fontSize: "0.8rem", fontWeight: 400 }}>
                     Need 2+ assessments
                   </span>
                 )}
               </div>
-            </div>
-            <div
-              style={{
-                fontSize: "0.8rem",
-                color: MUTED_TEXT,
-                marginTop: "0.35rem"
-              }}
-            >
-              Fastest bat speed from assessments using your game bat.
-              {batSpeedGain && (
-                <span>
-                  {" "}
-                  {batSpeedGain.baselineMph.toFixed(1)} →{" "}
-                  {batSpeedGain.currentMph.toFixed(1)} mph.
-                </span>
-              )}
             </div>
           </div>
 
@@ -405,7 +386,8 @@ const PlayerStatsView: React.FC<{ stats: PlayerStats }> = ({ stats }) => {
               <div
                 style={{
                   textAlign: "right",
-                  fontSize: "0.85rem",
+                  fontSize: "1rem",
+                  fontWeight: 600,
                   color: exitVeloGain ? ACCENT : MUTED_TEXT
                 }}
               >
@@ -416,27 +398,11 @@ const PlayerStatsView: React.FC<{ stats: PlayerStats }> = ({ stats }) => {
                     ({exitVeloGain.deltaPercent.toFixed(1)}%)
                   </>
                 ) : (
-                  <span style={{ fontSize: "0.75rem" }}>
+                  <span style={{ fontSize: "0.8rem", fontWeight: 400 }}>
                     Need 2+ assessments
                   </span>
                 )}
               </div>
-            </div>
-            <div
-              style={{
-                fontSize: "0.8rem",
-                color: MUTED_TEXT,
-                marginTop: "0.35rem"
-              }}
-            >
-              Hardest ball hit from full assessments.
-              {exitVeloGain && (
-                <span>
-                  {" "}
-                  {exitVeloGain.baselineMph.toFixed(1)} →{" "}
-                  {exitVeloGain.currentMph.toFixed(1)} mph.
-                </span>
-              )}
             </div>
           </div>
         </div>
@@ -654,9 +620,9 @@ const PlayerStatsView: React.FC<{ stats: PlayerStats }> = ({ stats }) => {
             );
           })}
         </div>
-      </section>
+      </div>
 
-      {/* Sessions summary moved to bottom */}
+      {/* Sessions summary directly under the main Stats page card */}
       <div style={{ marginTop: "1rem" }}>
         <SessionsSummaryCard counts={sessionCounts} />
       </div>
@@ -666,39 +632,47 @@ const PlayerStatsView: React.FC<{ stats: PlayerStats }> = ({ stats }) => {
 
 // ---- Top-level StatsPage wrapper ----
 
-const StatsPage: React.FC<StatsPageProps> = ({ onBack }) => {
+const StatsPage: React.FC<StatsPageProps> = ({
+  onBack,
+  playerIdOverride,
+  backLabel = "dashboard"
+}) => {
   const { currentProfile } = useAuth();
   const [stats, setStats] = useState<PlayerStats | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const targetPlayerId = playerIdOverride ?? currentProfile?.id ?? null;
+  const isOverride = !!playerIdOverride;
+  const canViewStats =
+    !!targetPlayerId && (isOverride || currentProfile?.role === "player");
+
   useEffect(() => {
+    if (!canViewStats || !targetPlayerId) return;
+
     const run = async () => {
-      if (!currentProfile || currentProfile.role !== "player") return;
       try {
         setLoading(true);
         setError(null);
-        const data = await fetchPlayerStats(currentProfile.id);
+        const data = await fetchPlayerStats(targetPlayerId);
         setStats(data);
       } catch (err: any) {
         setError(err?.message ?? "Failed to load stats");
+        setStats(null);
       } finally {
         setLoading(false);
       }
     };
 
     run();
-  }, [currentProfile]);
+  }, [canViewStats, targetPlayerId]);
 
-  if (!currentProfile) return null;
+  if (!currentProfile) {
+    return null;
+  }
 
-  const fullName =
-    (currentProfile.first_name ?? "") +
-    " " +
-    (currentProfile.last_name ?? "");
-
-  // Coach/parent views will plug in later via selectors + team grid
-  if (currentProfile.role !== "player") {
+  // If not explicitly overriding and you're not a player, show the guard.
+  if (!isOverride && currentProfile.role !== "player") {
     return (
       <section
         style={{
@@ -722,18 +696,19 @@ const StatsPage: React.FC<StatsPageProps> = ({ onBack }) => {
             fontSize: "0.85rem"
           }}
         >
-          ← Back to dashboard
+          ← Back to {backLabel}
         </button>
-        <h2 style={{ marginTop: 0, marginBottom: "0.5rem" }}>Stats</h2>
+        <h2 style={{ marginTop: 0, marginBottom: "0.5rem" }}>My Stats</h2>
         <p style={{ color: MUTED_TEXT, fontSize: "0.9rem" }}>
-          Coach and parent stats views will plug in here with team and player
-          selectors. Log in as a player profile to see the player stats view.
+          Stats are only available when logged in as a{" "}
+          <strong>Player</strong>.
         </p>
       </section>
     );
   }
 
-  if (loading || !stats) {
+  // Loading or waiting for stats (no error yet)
+  if (loading || (!stats && !error)) {
     return (
       <section
         style={{
@@ -757,7 +732,7 @@ const StatsPage: React.FC<StatsPageProps> = ({ onBack }) => {
             fontSize: "0.85rem"
           }}
         >
-          ← Back to dashboard
+          ← Back to {backLabel}
         </button>
 
         {error ? (
@@ -765,11 +740,60 @@ const StatsPage: React.FC<StatsPageProps> = ({ onBack }) => {
             {error || "Unable to load stats."}
           </p>
         ) : (
-          <LoadingCard message="Loading your stats..." />
+          <LoadingCard
+            message={
+              isOverride ? "Loading player stats..." : "Loading your stats..."
+            }
+          />
         )}
       </section>
     );
   }
+
+  // If we still have no stats here, treat it as an error case.
+  if (!stats) {
+    return (
+      <section
+        style={{
+          padding: "1rem",
+          borderRadius: "12px",
+          border: `1px solid ${CARD_BORDER}`,
+          background: CARD_BG,
+          color: PRIMARY_TEXT
+        }}
+      >
+        <button
+          onClick={onBack}
+          style={{
+            marginBottom: "1rem",
+            padding: "0.4rem 0.8rem",
+            borderRadius: "999px",
+            border: "1px solid #4b5563",
+            background: "transparent",
+            color: PRIMARY_TEXT,
+            cursor: "pointer",
+            fontSize: "0.85rem"
+          }}
+        >
+          ← Back to {backLabel}
+        </button>
+
+        <p style={{ color: "#f87171", fontSize: "0.9rem" }}>
+          {error || "Unable to load stats."}
+        </p>
+      </section>
+    );
+  }
+
+  const viewingSelf =
+    !isOverride || playerIdOverride === currentProfile.id;
+
+  const fullName =
+    (currentProfile.first_name ?? "") +
+    " " +
+    (currentProfile.last_name ?? "");
+  const selfLabel =
+    fullName.trim() || currentProfile.email || "Player";
 
   return (
     <section
@@ -794,7 +818,7 @@ const StatsPage: React.FC<StatsPageProps> = ({ onBack }) => {
           fontSize: "0.85rem"
         }}
       >
-        ← Back to dashboard
+        ← Back to {backLabel}
       </button>
 
       <h2 style={{ marginTop: 0, marginBottom: "0.25rem" }}>My Stats</h2>
@@ -806,8 +830,14 @@ const StatsPage: React.FC<StatsPageProps> = ({ onBack }) => {
           fontSize: "0.9rem"
         }}
       >
-        Speed and training data for{" "}
-        <strong>{fullName.trim() || currentProfile.email}</strong>.
+        {viewingSelf ? (
+          <>
+            Speed and training data for{" "}
+            <strong>{selfLabel}</strong>.
+          </>
+        ) : (
+          <>Speed and training data for this player.</>
+        )}
       </p>
 
       <PlayerStatsView stats={stats} />

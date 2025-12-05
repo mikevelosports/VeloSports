@@ -1,3 +1,4 @@
+// backend/src/routes/profile.routes.ts
 import { Router, Request, Response, NextFunction } from "express";
 import { supabaseAdmin } from "../config/supabaseClient";
 
@@ -20,7 +21,11 @@ const router = Router();
  */
 router.post(
   "/admin/users",
-  async (req: Request<unknown, unknown, CreateUserBody>, res: Response, next: NextFunction) => {
+  async (
+    req: Request<unknown, unknown, CreateUserBody>,
+    res: Response,
+    next: NextFunction
+  ) => {
     try {
       const { email, password, role, firstName, lastName, phone } = req.body;
 
@@ -76,44 +81,44 @@ router.post(
   }
 );
 
-// Make sure supabase is imported at the top of this file.
-// If you already have it, do NOT import it again.
-// Example import (adjust the path/name to whatever you already use):
-// import supabase from "../config/supabaseClient";
+/**
+ * Get full profile by ID.
+ */
+router.get(
+  "/profiles/:id",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { id } = req.params;
 
-router.get("/profiles/:id", async (req, res) => {
-  const { id } = req.params;
+      const { data, error, status } = await supabaseAdmin
+        .from("profiles")
+        .select("*")
+        .eq("id", id)
+        .single();
 
-  try {
-    const { data, error, status } = await supabaseAdmin
-      .from("profiles")
-      .select("*")
-      .eq("id", id)
-      .single();
+      if (error && status !== 406) {
+        console.error("Error fetching profile:", error);
+        return res
+          .status(500)
+          .json({ error: "Failed to fetch profile", details: error.message });
+      }
 
-    if (error && status !== 406) {
-      console.error("Error fetching profile:", error);
+      if (!data) {
+        return res.status(404).json({ error: "Profile not found" });
+      }
+
+      return res.json(data);
+    } catch (err: any) {
+      console.error("Unexpected error fetching profile:", err);
       return res
         .status(500)
-        .json({ error: "Failed to fetch profile", details: error.message });
+        .json({ error: "Unexpected error fetching profile" });
     }
-
-    if (!data) {
-      return res.status(404).json({ error: "Profile not found" });
-    }
-
-    return res.json(data);
-  } catch (err: any) {
-    console.error("Unexpected error fetching profile:", err);
-    return res
-      .status(500)
-      .json({ error: "Unexpected error fetching profile" });
   }
-});
-
+);
 
 /**
- * Update profile fields (player/coach/admin).
+ * Update profile fields (player/coach/admin/parent).
  * Body uses snake_case to match DB columns.
  */
 router.put(
@@ -148,9 +153,9 @@ router.put(
         "photo_url",
         "levels_coached",
         "current_organization",
-        "team_logo_url"
+        "team_logo_url",
+        "bio" // <-- NEW: bio column on profiles
       ];
-
 
       const payload: Record<string, any> = {};
       for (const field of allowedFields) {
@@ -187,7 +192,9 @@ router.put(
   }
 );
 
-
+/**
+ * List profiles (lightweight summary).
+ */
 router.get(
   "/profiles",
   async (req: Request, res: Response, next: NextFunction) => {
@@ -217,39 +224,10 @@ router.get(
 );
 
 /**
- * Get profile by ID (handy for testing).
- */
-router.get(
-  "/profiles/:id",
-  async (req: Request, res: Response, next: NextFunction) => {
-    try {
-      const { id } = req.params;
-      const { data: profile, error } = await supabaseAdmin
-        .from("profiles")
-        .select("*")
-        .eq("id", id)
-        .single();
-
-      if (error) {
-        throw error;
-      }
-
-      if (!profile) {
-        return res.status(404).json({ error: "Profile not found" });
-      }
-
-      res.json(profile);
-    } catch (err) {
-      next(err);
-    }
-  }
-);
-
-/**
- * Parent creates a child player (no login).
+ * Parent creates a child player (no login yet).
  * This will:
  * 1) Confirm the parent profile exists and is role "parent"
- * 2) Create a new profile with role "player" and no auth_user_id
+ * 2) Create a new profile with role "player" (auth_user_id null)
  * 3) Link them in player_parent_links
  */
 router.post(
@@ -275,10 +253,11 @@ router.post(
           .json({ error: "Parent not found or role is not 'parent'" });
       }
 
-      // 2) Create child player profile (no auth_user_id, email or password yet)
+      // 2) Create child player profile
       const {
         first_name,
         last_name,
+        email,
         birthdate,
         address_line1,
         address_line2,
@@ -300,12 +279,28 @@ router.post(
           .json({ error: "first_name and last_name are required" });
       }
 
+      // Parent UI can generate dummy emails, but we also guard here.
+      let finalEmail: string | null =
+        typeof email === "string" && email.trim() !== ""
+          ? email.trim().toLowerCase()
+          : null;
+
+      if (!finalEmail) {
+        const baseName = `${first_name ?? ""}${last_name ?? ""}`
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, "");
+        const rand = Math.random().toString(36).slice(2, 10);
+        const safeBase = baseName || "player";
+        finalEmail = `${safeBase}-${rand}@baseballpop.com`;
+      }
+
       const { data: player, error: createPlayerError } = await supabaseAdmin
         .from("profiles")
         .insert({
           role: "player",
           first_name,
           last_name,
+          email: finalEmail,
           birthdate,
           address_line1,
           address_line2,
@@ -340,6 +335,205 @@ router.post(
       }
 
       res.status(201).json(player);
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/**
+ * Get all child player profiles for a parent.
+ */
+router.get(
+  "/parents/:parentId/players",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { parentId } = req.params;
+
+      // Optional: ensure parent exists & is parent
+      const { data: parent, error: parentError } = await supabaseAdmin
+        .from("profiles")
+        .select("id, role")
+        .eq("id", parentId)
+        .single();
+
+      if (parentError) {
+        throw parentError;
+      }
+
+      if (!parent || parent.role !== "parent") {
+        return res
+          .status(400)
+          .json({ error: "Parent not found or role is not 'parent'" });
+      }
+
+      const { data: links, error: linksError } = await supabaseAdmin
+        .from("player_parent_links")
+        .select("player_id")
+        .eq("parent_id", parentId);
+
+      if (linksError) {
+        throw linksError;
+      }
+
+      if (!links || links.length === 0) {
+        return res.json([]);
+      }
+
+      const playerIds = links.map((l: any) => l.player_id).filter(Boolean);
+
+      if (playerIds.length === 0) {
+        return res.json([]);
+      }
+
+      const { data: players, error: playersError } = await supabaseAdmin
+        .from("profiles")
+        .select(
+          "id, role, email, first_name, last_name, photo_url, playing_level, current_team"
+        )
+        .in("id", playerIds);
+
+      if (playersError) {
+        throw playersError;
+      }
+
+      res.json(players ?? []);
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/**
+ * Unlink (but do not delete) a child player from a parent.
+ */
+router.delete(
+  "/parents/:parentId/players/:playerId",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { parentId, playerId } = req.params;
+
+      const { error } = await supabaseAdmin
+        .from("player_parent_links")
+        .delete()
+        .eq("parent_id", parentId)
+        .eq("player_id", playerId);
+
+      if (error) {
+        throw error;
+      }
+
+      return res.status(204).send();
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/**
+ * Parent invites an existing player (with an Auth account) to link.
+ * For now this:
+ *  - Finds the player by email
+ *  - Ensures they are role "player"
+ *  - Creates player_parent_links if not already present
+ *  - TODO: send an email for confirmation
+ */
+router.post(
+  "/parents/:parentId/invite-player",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { parentId } = req.params;
+      const { email } = req.body;
+
+      if (!email || typeof email !== "string") {
+        return res.status(400).json({ error: "email is required" });
+      }
+
+      const normalizedEmail = email.trim().toLowerCase();
+
+      // Confirm parent
+      const { data: parent, error: parentError } = await supabaseAdmin
+        .from("profiles")
+        .select("id, role, first_name, last_name")
+        .eq("id", parentId)
+        .single();
+
+      if (parentError) {
+        throw parentError;
+      }
+
+      if (!parent || parent.role !== "parent") {
+        return res
+          .status(400)
+          .json({ error: "Parent not found or role is not 'parent'" });
+      }
+
+      // Find player profile by email
+      const {
+        data: player,
+        error: playerError,
+        status: playerStatus
+      } = await supabaseAdmin
+        .from("profiles")
+        .select(
+          "id, role, email, first_name, last_name, auth_user_id, photo_url, playing_level, current_team"
+        )
+        .eq("email", normalizedEmail)
+        .eq("role", "player")
+        .single();
+
+      if (playerError && playerStatus !== 406) {
+        throw playerError;
+      }
+
+      if (!player) {
+        return res
+          .status(404)
+          .json({ error: "No player found with that email" });
+      }
+
+      if (!player.auth_user_id) {
+        return res.status(400).json({
+          error:
+            "That player does not have a login yet. Use 'Add Player' instead for parent-managed accounts."
+        });
+      }
+
+      // Check if already linked
+      const { data: existingLinks, error: existingError } =
+        await supabaseAdmin
+          .from("player_parent_links")
+          .select("player_id")
+          .eq("parent_id", parentId)
+          .eq("player_id", player.id);
+
+      if (existingError) {
+        throw existingError;
+      }
+
+      if (!existingLinks || existingLinks.length === 0) {
+        const { error: linkError } = await supabaseAdmin
+          .from("player_parent_links")
+          .insert({
+            parent_id: parentId,
+            player_id: player.id
+          });
+
+        if (linkError) {
+          throw linkError;
+        }
+      }
+
+      // TODO: send real email invite
+      console.log(
+        `[parent-invite] Parent ${parentId} invited player ${player.id} (${player.email})`
+      );
+
+      return res.json({
+        message:
+          "Invite recorded. In a production environment this would send an email for confirmation.",
+        player
+      });
     } catch (err) {
       next(err);
     }

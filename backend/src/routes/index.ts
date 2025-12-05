@@ -5,6 +5,7 @@ import protocolRoutes from "./protocol.routes";
 import sessionRoutes from "./session.routes";
 import statsRouter from "./stats.routes";
 import programStateRoutes from "./programState.routes";
+import teamRoutes from "./team.routes";
 
 const router = Router();
 
@@ -14,5 +15,6 @@ router.use(protocolRoutes);
 router.use(sessionRoutes);
 router.use(statsRouter);
 router.use(programStateRoutes);
+router.use(teamRoutes);
 
 export default router;

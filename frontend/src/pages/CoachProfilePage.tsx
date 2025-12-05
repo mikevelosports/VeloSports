@@ -1,4 +1,4 @@
-// frontend/src/pages/ProfilePage.tsx
+// frontend/src/pages/CoachProfilePage.tsx
 import React, { useEffect, useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import { API_BASE_URL } from "../api/client";
@@ -10,13 +10,13 @@ const CARD_BG = "#020617";
 const CARD_BORDER = "rgba(148,163,184,0.4)";
 const CARD_SHADOW = "0 8px 20px rgba(0,0,0,0.35)";
 
-const POSITION_CHOICES = ["P", "C", "1B", "Infield", "Outfield"] as const;
-
-// --- Shared settings + legal cards (used by player/coach pages) ---
+// Reuse the same settings + legal cards as the player page,
+// but defined locally to avoid cross-file imports.
 
 const AppSettingsSection: React.FC = () => {
   const [theme, setTheme] = useState<"light" | "dark">("dark");
-  const [notificationsEnabled, setNotificationsEnabled] = useState(true);
+  const [notificationsEnabled, setNotificationsEnabled] =
+    useState(true);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -30,7 +30,9 @@ const AppSettingsSection: React.FC = () => {
     setTheme(initialTheme);
     document.documentElement.dataset.theme = initialTheme;
 
-    const storedNotif = window.localStorage.getItem("velo_notifications");
+    const storedNotif = window.localStorage.getItem(
+      "velo_notifications"
+    );
     if (storedNotif === "off") {
       setNotificationsEnabled(false);
     }
@@ -109,7 +111,8 @@ const AppSettingsSection: React.FC = () => {
           color: MUTED_TEXT
         }}
       >
-        Basic appearance and account settings for your Velo app experience.
+        Basic appearance and account settings for your Velo app
+        experience.
       </p>
 
       <div
@@ -139,8 +142,8 @@ const AppSettingsSection: React.FC = () => {
             Appearance
           </div>
           <div style={{ color: MUTED_TEXT }}>
-            Choose light or dark mode. We&apos;ll eventually sync this with
-            your system preference.
+            Choose light or dark mode. We&apos;ll eventually sync this
+            with your system preference.
           </div>
         </div>
         <div
@@ -196,8 +199,7 @@ const AppSettingsSection: React.FC = () => {
             Notifications
           </div>
           <div style={{ color: MUTED_TEXT }}>
-            Email updates about new protocols, features, and progress
-            insights.
+            Email updates about new tools, protocols, and team features.
           </div>
         </div>
         <div
@@ -232,7 +234,7 @@ const AppSettingsSection: React.FC = () => {
               color: MUTED_TEXT
             }}
           >
-            (Placeholder, not sending real emails yet)
+            (Placeholder for now)
           </span>
         </div>
 
@@ -255,8 +257,7 @@ const AppSettingsSection: React.FC = () => {
             Account
           </div>
           <div style={{ color: MUTED_TEXT }}>
-            Manage account ownership and cleanup. We&apos;ll eventually make
-            this self-serve.
+            Manage ownership and deletion of this coach account.
           </div>
         </div>
         <div
@@ -291,7 +292,7 @@ const AppSettingsSection: React.FC = () => {
               color: MUTED_TEXT
             }}
           >
-            Opens an email to support for now.
+            Opens an email to support.
           </span>
         </div>
       </div>
@@ -327,8 +328,7 @@ const LegalAndPrivacySection: React.FC = () => {
           color: MUTED_TEXT
         }}
       >
-        High level summary of how Velo treats your data. This is not a
-        final legal document, but a friendly overview.
+        How we use your coach profile, team data, and athlete stats.
       </p>
       <ul
         style={{
@@ -340,20 +340,20 @@ const LegalAndPrivacySection: React.FC = () => {
         }}
       >
         <li>
-          Training and performance data is used to power your{" "}
-          <strong>My Program</strong>, stats, and team views.
+          Team and athlete stats are only visible to coaches connected
+          to that team.
         </li>
         <li>
-          Coaches only see data for athletes they&apos;re explicitly
-          connected to via teams.
+          We use your organization and levels coached to tailor
+          content and workflows.
         </li>
         <li>
-          We don&apos;t sell your personal data. Any analytics usage will
-          be aggregated and anonymized.
+          We don&apos;t sell your personal information; analytics are
+          aggregated and anonymized.
         </li>
         <li>
-          If you ever want your account removed, reach out and we&apos;ll
-          help you cleanly delete it.
+          You can request full account and team data removal at any
+          time via support.
         </li>
       </ul>
       <p
@@ -363,124 +363,77 @@ const LegalAndPrivacySection: React.FC = () => {
           color: MUTED_TEXT
         }}
       >
-        Full Terms of Use and Privacy Policy will live on the marketing
-        site and be linked here later.
+        Full Terms of Use and Privacy Policy will be linked here from
+        the main site.
       </p>
     </section>
   );
 };
 
-// --- Player profile logic below ---
+// --- Coach profile specifics ---
 
-interface FormState {
+const LEVELS_COACHED_CHOICES = [
+  "youth",
+  "high_school",
+  "travel",
+  "college",
+  "pro"
+] as const;
+
+const LEVEL_LABELS: Record<string, string> = {
+  youth: "Youth",
+  high_school: "High School",
+  travel: "Travel",
+  college: "College",
+  pro: "Pro"
+};
+
+interface CoachFormState {
   phone: string;
-  birthdate: string;
-  height_feet: string;
-  height_inches: string;
-  weight_lbs: string;
   address_line1: string;
   address_line2: string;
   city: string;
   state_region: string;
   postal_code: string;
   country: string;
-  playing_level: string;
-  current_team: string;
-  current_team_level: string;
-  current_coach_name: string;
-  current_coach_email: string;
-  jersey_number: string;
-  positions_played: string[];
-  years_played: string;
-  batting_avg_last_season: string;
   photo_url: string;
+  current_organization: string;
+  levels_coached: string[];
+  team_logo_url: string;
 }
 
-function parseNumberLike(v: any): number | null {
-  if (typeof v === "number") return v;
-  if (typeof v === "string" && v.trim() !== "") {
-    const n = Number(v);
-    if (!Number.isNaN(n)) return n;
-  }
-  return null;
-}
-
-function cmToFeetInches(cm: number | null): {
-  feet: string;
-  inches: string;
-} {
-  if (cm == null || Number.isNaN(cm)) {
-    return { feet: "", inches: "" };
-  }
-  const totalInches = Math.round(cm / 2.54);
-  const feet = Math.floor(totalInches / 12);
-  const inches = totalInches % 12;
-  return { feet: String(feet), inches: String(inches) };
-}
-
-function kgToLbs(kg: number | null): string {
-  if (kg == null || Number.isNaN(kg)) return "";
-  return String(Math.round(kg * 2.20462));
-}
-
-function computeProfileCompleteFromForm(f: FormState): boolean {
-  const hasBirthdate = !!f.birthdate;
-  const hasHeight = !!f.height_feet && !!f.height_inches;
-  const hasWeight = !!f.weight_lbs;
-  const hasPlayingLevel = !!f.playing_level;
-  const hasPositions =
-    f.positions_played && f.positions_played.length > 0;
-  return (
-    hasBirthdate &&
-    hasHeight &&
-    hasWeight &&
-    hasPlayingLevel &&
-    hasPositions
-  );
-}
-
-const EMPTY_FORM: FormState = {
+const EMPTY_COACH_FORM: CoachFormState = {
   phone: "",
-  birthdate: "",
-  height_feet: "",
-  height_inches: "",
-  weight_lbs: "",
   address_line1: "",
   address_line2: "",
   city: "",
   state_region: "",
   postal_code: "",
   country: "",
-  playing_level: "",
-  current_team: "",
-  current_team_level: "",
-  current_coach_name: "",
-  current_coach_email: "",
-  jersey_number: "",
-  positions_played: [],
-  years_played: "",
-  batting_avg_last_season: "",
-  photo_url: ""
+  photo_url: "",
+  current_organization: "",
+  levels_coached: [],
+  team_logo_url: ""
 };
 
-const ProfilePage: React.FC = () => {
+const CoachProfilePage: React.FC = () => {
   const { currentProfile } = useAuth();
 
-  const [form, setForm] = useState<FormState>(EMPTY_FORM);
+  const [form, setForm] =
+    useState<CoachFormState>(EMPTY_COACH_FORM);
   const [loadingProfile, setLoadingProfile] = useState(true);
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  const [profileComplete, setProfileComplete] = useState(false);
+  const [bio, setBio] = useState<string>("");
 
   if (!currentProfile) return null;
 
-  const isPlayer = currentProfile.role === "player";
+  const isCoach = currentProfile.role === "coach";
 
-  // 🔄 Load full profile from backend on mount
   useEffect(() => {
-    if (!isPlayer) {
+    if (!isCoach) {
       setLoadingProfile(false);
       return;
     }
@@ -503,60 +456,39 @@ const ProfilePage: React.FC = () => {
         }
         const p = await res.json();
 
-        // Height
-        const heightCm = parseNumberLike(p.height_cm);
-        const { feet, inches } = cmToFeetInches(heightCm);
-
-        // Weight
-        const weightKg = parseNumberLike(p.weight_kg);
-        const weight_lbs = kgToLbs(weightKg);
-
-        // Positions
-        let positions: string[] = [];
-        if (Array.isArray(p.positions_played)) {
-          positions = p.positions_played;
+        let levels: string[] = [];
+        if (Array.isArray(p.levels_coached)) {
+          levels = p.levels_coached;
         } else if (
-          typeof p.positions_played === "string" &&
-          p.positions_played.trim() !== ""
+          typeof p.levels_coached === "string" &&
+          p.levels_coached.trim() !== ""
         ) {
-          positions = p.positions_played
+          levels = p.levels_coached
             .split(",")
             .map((s: string) => s.trim())
             .filter(Boolean);
         }
 
-        const nextForm: FormState = {
+        const nextForm: CoachFormState = {
           phone: p.phone ?? "",
-          birthdate: p.birthdate ?? "",
-          height_feet: feet,
-          height_inches: inches,
-          weight_lbs,
           address_line1: p.address_line1 ?? "",
           address_line2: p.address_line2 ?? "",
           city: p.city ?? "",
           state_region: p.state_region ?? "",
           postal_code: p.postal_code ?? "",
           country: p.country ?? "",
-          playing_level: p.playing_level ?? "",
-          current_team: p.current_team ?? "",
-          current_team_level: p.current_team_level ?? "",
-          current_coach_name: p.current_coach_name ?? "",
-          current_coach_email: p.current_coach_email ?? "",
-          jersey_number: p.jersey_number ?? "",
-          positions_played: positions,
-          years_played:
-            p.years_played != null ? String(p.years_played) : "",
-          batting_avg_last_season:
-            p.batting_avg_last_season != null
-              ? String(p.batting_avg_last_season)
-              : "",
-          photo_url: p.photo_url ?? ""
+          photo_url: p.photo_url ?? "",
+          current_organization: p.current_organization ?? "",
+          levels_coached: levels,
+          team_logo_url: p.team_logo_url ?? ""
         };
 
         setForm(nextForm);
-        setProfileComplete(
-          computeProfileCompleteFromForm(nextForm)
-        );
+
+        // ✅ Bio comes from Supabase now
+        setBio(p.bio ?? "");
+
+        
       } catch (err: any) {
         console.error(err);
         setError(err?.message ?? "Failed to load profile");
@@ -566,98 +498,66 @@ const ProfilePage: React.FC = () => {
     };
 
     loadProfile();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentProfile.id, isPlayer]);
+  }, [currentProfile.id, isCoach]);
 
   const handleChange =
-    (field: keyof FormState) =>
-    (
-      e: React.ChangeEvent<
-        HTMLInputElement | HTMLSelectElement
-      >
-    ) => {
+    (field: keyof CoachFormState) =>
+    (e: React.ChangeEvent<HTMLInputElement>) => {
       const value = e.target.value;
-      setForm((prev) => {
-        const next = { ...prev, [field]: value };
-        return next;
-      });
+      setForm((prev) => ({ ...prev, [field]: value }));
       setError(null);
       setSuccess(null);
     };
 
-  const togglePosition = (pos: string) => {
+  const toggleLevel = (level: string) => {
     setForm((prev) => {
-      const exists = prev.positions_played.includes(pos);
-      const positions = exists
-        ? prev.positions_played.filter((p) => p !== pos)
-        : [...prev.positions_played, pos];
-      const next = { ...prev, positions_played: positions };
-      return next;
+      const exists = prev.levels_coached.includes(level);
+      const nextLevels = exists
+        ? prev.levels_coached.filter((l) => l !== level)
+        : [...prev.levels_coached, level];
+      return { ...prev, levels_coached: nextLevels };
     });
     setError(null);
     setSuccess(null);
   };
 
+  const handleBioChange = (
+    e: React.ChangeEvent<HTMLTextAreaElement>
+  ) => {
+    const value = e.target.value;
+    setBio(value);
+    setError(null);
+    setSuccess(null);
+  };
+
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!isPlayer) return;
+    if (!isCoach) return;
 
     setSaving(true);
     setError(null);
     setSuccess(null);
 
     try {
-      // ft/in -> cm
-      const feetNum = Number(form.height_feet);
-      const inchNum = Number(form.height_inches);
-      let height_cm: number | null = null;
-      if (!Number.isNaN(feetNum) || !Number.isNaN(inchNum)) {
-        const safeFeet = Number.isNaN(feetNum) ? 0 : feetNum;
-        const safeInches = Number.isNaN(inchNum) ? 0 : inchNum;
-        const totalInches = safeFeet * 12 + safeInches;
-        if (totalInches > 0) {
-          height_cm = Math.round(totalInches * 2.54);
-        }
-      }
-
-      // lbs -> kg
-      const lbsNum = Number(form.weight_lbs);
-      let weight_kg: number | null = null;
-      if (!Number.isNaN(lbsNum) && lbsNum > 0) {
-        weight_kg = Math.round((lbsNum / 2.20462) * 10) / 10;
-      }
-
       const payload = {
         phone: form.phone || null,
-        birthdate: form.birthdate || null,
-        height_cm,
-        weight_kg,
         address_line1: form.address_line1 || null,
         address_line2: form.address_line2 || null,
         city: form.city || null,
         state_region: form.state_region || null,
         postal_code: form.postal_code || null,
         country: form.country || null,
-        playing_level: form.playing_level || null,
-        current_team: form.current_team || null,
-        current_team_level: form.current_team_level || null,
-        current_coach_name: form.current_coach_name || null,
-        current_coach_email: form.current_coach_email || null,
-        jersey_number: form.jersey_number || null,
-        positions_played:
-          form.positions_played &&
-          form.positions_played.length > 0
-            ? form.positions_played
+        current_organization: form.current_organization || null,
+        levels_coached:
+          form.levels_coached && form.levels_coached.length > 0
+            ? form.levels_coached
             : null,
-        years_played: form.years_played
-          ? Number(form.years_played)
-          : null,
-        batting_avg_last_season:
-          form.batting_avg_last_season
-            ? Number(form.batting_avg_last_season)
-            : null,
-        photo_url: form.photo_url || null
+        team_logo_url: form.team_logo_url || null,
+        photo_url: form.photo_url || null,
+        bio: bio || null // ✅ new field
       };
+
 
       const res = await fetch(
         `${API_BASE_URL}/profiles/${currentProfile.id}`,
@@ -678,10 +578,7 @@ const ProfilePage: React.FC = () => {
         );
       }
 
-      const nowComplete =
-        computeProfileCompleteFromForm(form);
-      setProfileComplete(nowComplete);
-      setSuccess("Profile updated");
+      setSuccess("Coach profile updated");
       setEditing(false);
     } catch (err: any) {
       console.error(err);
@@ -695,7 +592,7 @@ const ProfilePage: React.FC = () => {
     currentProfile.last_name ?? ""
   }`.trim();
   const displayName =
-    fullName || currentProfile.email || "Player";
+    fullName || currentProfile.email || "Coach";
 
   const avatarUrl =
     form.photo_url ||
@@ -707,10 +604,29 @@ const ProfilePage: React.FC = () => {
       .filter(Boolean)
       .map((part) => part[0]?.toUpperCase())
       .slice(0, 2)
-      .join("") || "P";
+      .join("") || "C";
 
-  // Non-player accounts: simple message, but still show settings + legal
-  if (!isPlayer) {
+  const orgLabel =
+    form.current_organization ||
+    (currentProfile as any).current_organization ||
+    "Not set yet";
+
+  const levelsLabel =
+    form.levels_coached && form.levels_coached.length > 0
+      ? form.levels_coached
+          .map((l) => LEVEL_LABELS[l] ?? l)
+          .join(", ")
+      : "Not set yet";
+
+  const addressSummary =
+    form.city || form.state_region || form.country
+      ? [form.city, form.state_region, form.country]
+          .filter(Boolean)
+          .join(", ")
+      : "Not set yet";
+
+  if (!isCoach) {
+    // Just in case someone hits this with a non-coach account
     return (
       <>
         <section
@@ -730,7 +646,7 @@ const ProfilePage: React.FC = () => {
               fontSize: "1.1rem"
             }}
           >
-            Profile
+            Coach Profile
           </h2>
           <p
             style={{
@@ -739,9 +655,9 @@ const ProfilePage: React.FC = () => {
               color: MUTED_TEXT
             }}
           >
-            Detailed player profiles are only needed for{" "}
-            <strong>Player</strong> accounts. Coaches and parents
-            will get dedicated team / athlete views later.
+            This view is intended for <strong>Coach</strong>{" "}
+            accounts. Log in as a coach to edit team and organization
+            details.
           </p>
         </section>
         <AppSettingsSection />
@@ -771,7 +687,7 @@ const ProfilePage: React.FC = () => {
               color: MUTED_TEXT
             }}
           >
-            Loading profile...
+            Loading coach profile...
           </p>
         </section>
         <AppSettingsSection />
@@ -780,31 +696,8 @@ const ProfilePage: React.FC = () => {
     );
   }
 
-  // === SUMMARY VIEW ===
+  // SUMMARY VIEW
   if (!editing) {
-    const levelLabel =
-      form.playing_level ||
-      (currentProfile as any).playing_level ||
-      "Not set yet";
-    const teamLabel =
-      form.current_team ||
-      (currentProfile as any).current_team ||
-      "Not set yet";
-    const positionsLabel =
-      form.positions_played &&
-      form.positions_played.length > 0
-        ? form.positions_played.join(", ")
-        : "Not set yet";
-
-    const heightLabel =
-      form.height_feet && form.height_inches
-        ? `${form.height_feet}' ${form.height_inches}"`
-        : "Not set yet";
-
-    const weightLabel = form.weight_lbs
-      ? `${form.weight_lbs} lbs`
-      : "Not set yet";
-
     return (
       <>
         <section
@@ -818,6 +711,7 @@ const ProfilePage: React.FC = () => {
             color: PRIMARY_TEXT
           }}
         >
+          {/* Top: name, email, org, photo */}
           <div
             style={{
               display: "flex",
@@ -844,7 +738,7 @@ const ProfilePage: React.FC = () => {
               {avatarUrl ? (
                 <img
                   src={avatarUrl}
-                  alt="Player avatar"
+                  alt="Coach avatar"
                   style={{
                     width: "100%",
                     height: "100%",
@@ -873,7 +767,7 @@ const ProfilePage: React.FC = () => {
                   marginBottom: "0.15rem"
                 }}
               >
-                Player Profile
+                Coach Profile
               </div>
               <h3
                 style={{
@@ -900,75 +794,70 @@ const ProfilePage: React.FC = () => {
                   color: MUTED_TEXT
                 }}
               >
-                Team: <strong>{teamLabel}</strong>
+                Organization: <strong>{orgLabel}</strong>
               </div>
-              <div
-                style={{
-                  marginTop: "0.05rem",
-                  fontSize: "0.8rem",
-                  color: MUTED_TEXT
-                }}
-              >
-                Level: <strong>{levelLabel}</strong>
-              </div>
+              {form.team_logo_url && (
+                <div
+                  style={{
+                    marginTop: "0.3rem",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "0.4rem"
+                  }}
+                >
+                  <div
+                    style={{
+                      fontSize: "0.75rem",
+                      color: MUTED_TEXT
+                    }}
+                  >
+                    Team logo:
+                  </div>
+                  <img
+                    src={form.team_logo_url}
+                    alt="Team logo"
+                    style={{
+                      height: 32,
+                      width: 32,
+                      borderRadius: "6px",
+                      objectFit: "cover",
+                      border: `1px solid ${CARD_BORDER}`
+                    }}
+                  />
+                </div>
+              )}
             </div>
           </div>
 
-          {!profileComplete && (
+          {/* Bio */}
+          <div
+            style={{
+              marginBottom: "0.75rem"
+            }}
+          >
             <div
               style={{
-                marginBottom: "0.9rem",
-                padding: "0.75rem 0.9rem",
-                borderRadius: "10px",
-                border: `1px dashed ${ACCENT}`,
-                background: "#022c22"
+                fontSize: "0.8rem",
+                textTransform: "uppercase",
+                letterSpacing: "0.08em",
+                color: MUTED_TEXT,
+                marginBottom: "0.2rem"
               }}
             >
-              <p
-                style={{
-                  margin: "0 0 0.4rem",
-                  fontSize: "0.85rem",
-                  color: PRIMARY_TEXT
-                }}
-              >
-                Make sure to complete your profile in order to have a
-                custom program built for you.
-              </p>
-              <button
-                type="button"
-                onClick={() => {
-                  setEditing(true);
-                  setError(null);
-                  setSuccess(null);
-                }}
-                style={{
-                  padding: "0.45rem 0.9rem",
-                  borderRadius: "999px",
-                  border: "none",
-                  cursor: "pointer",
-                  background: ACCENT,
-                  color: "#0f172a",
-                  fontSize: "0.85rem",
-                  fontWeight: 600
-                }}
-              >
-                Complete profile
-              </button>
+              Bio
             </div>
-          )}
-
-          {profileComplete && (
             <p
               style={{
-                margin: "0 0 0.75rem",
+                margin: 0,
                 fontSize: "0.85rem",
                 color: MUTED_TEXT
               }}
             >
-              Your profile is ready for building a custom program. You
-              can update it anytime.
+              {bio
+                ? bio
+                : "Add a short coaching bio so players and parents know who you are and what you focus on."}
             </p>
-          )}
+          </div>
 
           {success && (
             <p
@@ -998,9 +887,9 @@ const ProfilePage: React.FC = () => {
             style={{
               display: "grid",
               gridTemplateColumns:
-                "repeat(auto-fit, minmax(200px, 1fr))",
+                "repeat(auto-fit, minmax(220px, 1fr))",
               gap: "0.8rem",
-              marginTop: "0.5rem"
+              marginTop: "0.25rem"
             }}
           >
             <div>
@@ -1031,21 +920,9 @@ const ProfilePage: React.FC = () => {
                 </div>
                 <div>
                   <strong style={{ color: PRIMARY_TEXT }}>
-                    Birthdate:&nbsp;
+                    Address:&nbsp;
                   </strong>
-                  {form.birthdate || "Not set yet"}
-                </div>
-                <div>
-                  <strong style={{ color: PRIMARY_TEXT }}>
-                    Height:&nbsp;
-                  </strong>
-                  {heightLabel}
-                </div>
-                <div>
-                  <strong style={{ color: PRIMARY_TEXT }}>
-                    Weight:&nbsp;
-                  </strong>
-                  {weightLabel}
+                  {addressSummary}
                 </div>
               </div>
             </div>
@@ -1072,27 +949,15 @@ const ProfilePage: React.FC = () => {
               >
                 <div>
                   <strong style={{ color: PRIMARY_TEXT }}>
-                    Jersey:&nbsp;
+                    Organization:&nbsp;
                   </strong>
-                  {form.jersey_number || "Not set yet"}
+                  {orgLabel}
                 </div>
                 <div>
                   <strong style={{ color: PRIMARY_TEXT }}>
-                    Positions:&nbsp;
+                    Levels coached:&nbsp;
                   </strong>
-                  {positionsLabel}
-                </div>
-                <div>
-                  <strong style={{ color: PRIMARY_TEXT }}>
-                    Years played:&nbsp;
-                  </strong>
-                  {form.years_played || "Not set yet"}
-                </div>
-                <div>
-                  <strong style={{ color: PRIMARY_TEXT }}>
-                    Last season AVG:&nbsp;
-                  </strong>
-                  {form.batting_avg_last_season || "Not set yet"}
+                  {levelsLabel}
                 </div>
               </div>
             </div>
@@ -1117,9 +982,7 @@ const ProfilePage: React.FC = () => {
                 fontSize: "0.95rem"
               }}
             >
-              {profileComplete
-                ? "Update profile"
-                : "Complete profile"}
+              Edit coach profile
             </button>
           </div>
         </section>
@@ -1129,7 +992,7 @@ const ProfilePage: React.FC = () => {
     );
   }
 
-  // === EDIT VIEW ===
+  // EDIT VIEW
   return (
     <>
       <section
@@ -1157,7 +1020,7 @@ const ProfilePage: React.FC = () => {
               fontSize: "1.1rem"
             }}
           >
-            Edit Player Profile
+            Edit Coach Profile
           </h2>
           <button
             type="button"
@@ -1186,9 +1049,8 @@ const ProfilePage: React.FC = () => {
             color: MUTED_TEXT
           }}
         >
-          Fill these out so we can build a better{" "}
-          <strong>My Program</strong> for you and give coaches the right
-          context.
+          Set up your organization, contact details, and basic baseball
+          context so athletes and parents have the right info.
         </p>
 
         <form
@@ -1199,7 +1061,7 @@ const ProfilePage: React.FC = () => {
             gap: "1rem"
           }}
         >
-          {/* Photo URL */}
+          {/* Bio */}
           <div>
             <label
               style={{
@@ -1209,26 +1071,27 @@ const ProfilePage: React.FC = () => {
                 marginBottom: "0.25rem"
               }}
             >
-              Photo URL
+              Bio
             </label>
-            <input
-              type="text"
-              value={form.photo_url}
-              onChange={handleChange("photo_url")}
-              placeholder="Paste a link to your profile photo"
+            <textarea
+              value={bio}
+              onChange={handleBioChange}
+              rows={3}
+              placeholder="Short coaching background, what you focus on, and how you like to work with athletes."
               style={{
                 width: "100%",
-                padding: "0.45rem 0.6rem",
+                padding: "0.5rem 0.6rem",
                 borderRadius: "6px",
                 border: `1px solid ${CARD_BORDER}`,
                 background: "#020617",
                 color: PRIMARY_TEXT,
-                fontSize: "0.9rem"
+                fontSize: "0.9rem",
+                resize: "vertical"
               }}
             />
           </div>
 
-          {/* Basic info */}
+          {/* Photo / org / logo */}
           <div
             style={{
               display: "grid",
@@ -1246,13 +1109,13 @@ const ProfilePage: React.FC = () => {
                   marginBottom: "0.25rem"
                 }}
               >
-                Phone number
+                Profile photo URL
               </label>
               <input
-                type="tel"
-                value={form.phone}
-                onChange={handleChange("phone")}
-                placeholder="e.g. 555-123-4567"
+                type="text"
+                value={form.photo_url}
+                onChange={handleChange("photo_url")}
+                placeholder="Paste a link to your photo"
                 style={{
                   width: "100%",
                   padding: "0.45rem 0.6rem",
@@ -1274,12 +1137,13 @@ const ProfilePage: React.FC = () => {
                   marginBottom: "0.25rem"
                 }}
               >
-                Birthdate
+                Organization
               </label>
               <input
-                type="date"
-                value={form.birthdate}
-                onChange={handleChange("birthdate")}
+                type="text"
+                value={form.current_organization}
+                onChange={handleChange("current_organization")}
+                placeholder="e.g. Velocity High School"
                 style={{
                   width: "100%",
                   padding: "0.45rem 0.6rem",
@@ -1292,7 +1156,6 @@ const ProfilePage: React.FC = () => {
               />
             </div>
 
-            {/* Height / Weight */}
             <div>
               <label
                 style={{
@@ -1302,84 +1165,13 @@ const ProfilePage: React.FC = () => {
                   marginBottom: "0.25rem"
                 }}
               >
-                Height
-              </label>
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "0.4rem"
-                }}
-              >
-                <input
-                  type="number"
-                  min={0}
-                  value={form.height_feet}
-                  onChange={handleChange("height_feet")}
-                  placeholder="5"
-                  style={{
-                    width: "60px",
-                    padding: "0.4rem 0.5rem",
-                    borderRadius: "6px",
-                    border: `1px solid ${CARD_BORDER}`,
-                    background: "#020617",
-                    color: PRIMARY_TEXT,
-                    fontSize: "0.9rem"
-                  }}
-                />
-                <span
-                  style={{
-                    fontSize: "0.85rem",
-                    color: MUTED_TEXT
-                  }}
-                >
-                  ft
-                </span>
-                <input
-                  type="number"
-                  min={0}
-                  max={11}
-                  value={form.height_inches}
-                  onChange={handleChange("height_inches")}
-                  placeholder="10"
-                  style={{
-                    width: "60px",
-                    padding: "0.4rem 0.5rem",
-                    borderRadius: "6px",
-                    border: `1px solid ${CARD_BORDER}`,
-                    background: "#020617",
-                    color: PRIMARY_TEXT,
-                    fontSize: "0.9rem"
-                  }}
-                />
-                <span
-                  style={{
-                    fontSize: "0.85rem",
-                    color: MUTED_TEXT
-                  }}
-                >
-                  in
-                </span>
-              </div>
-            </div>
-
-            <div>
-              <label
-                style={{
-                  display: "block",
-                  fontSize: "0.8rem",
-                  color: MUTED_TEXT,
-                  marginBottom: "0.25rem"
-                }}
-              >
-                Weight (lb)
+                Team logo URL
               </label>
               <input
-                type="number"
-                min={0}
-                value={form.weight_lbs}
-                onChange={handleChange("weight_lbs")}
-                placeholder="e.g. 170"
+                type="text"
+                value={form.team_logo_url}
+                onChange={handleChange("team_logo_url")}
+                placeholder="Logo for your main team / org"
                 style={{
                   width: "100%",
                   padding: "0.45rem 0.6rem",
@@ -1393,27 +1185,17 @@ const ProfilePage: React.FC = () => {
             </div>
           </div>
 
-          {/* Address */}
+          {/* Contact & address */}
           <div>
             <h3
               style={{
-                margin: "0 0 0.4rem",
+                margin: "0.5rem 0 0.4rem",
                 fontSize: "0.95rem",
                 color: PRIMARY_TEXT
               }}
             >
-              Address
+              Contact & Basics
             </h3>
-            <p
-              style={{
-                margin: "0 0 0.4rem",
-                fontSize: "0.8rem",
-                color: MUTED_TEXT
-              }}
-            >
-              For now, enter your address manually. We&apos;ll add Google
-              Maps autocomplete later.
-            </p>
             <div
               style={{
                 display: "grid",
@@ -1422,6 +1204,34 @@ const ProfilePage: React.FC = () => {
                 gap: "0.75rem"
               }}
             >
+              <div>
+                <label
+                  style={{
+                    display: "block",
+                    fontSize: "0.8rem",
+                    color: MUTED_TEXT,
+                    marginBottom: "0.25rem"
+                  }}
+                >
+                  Phone number
+                </label>
+                <input
+                  type="tel"
+                  value={form.phone}
+                  onChange={handleChange("phone")}
+                  placeholder="e.g. 555-222-2222"
+                  style={{
+                    width: "100%",
+                    padding: "0.45rem 0.6rem",
+                    borderRadius: "6px",
+                    border: `1px solid ${CARD_BORDER}`,
+                    background: "#020617",
+                    color: PRIMARY_TEXT,
+                    fontSize: "0.9rem"
+                  }}
+                />
+              </div>
+
               <div style={{ gridColumn: "1 / -1" }}>
                 <label
                   style={{
@@ -1449,6 +1259,7 @@ const ProfilePage: React.FC = () => {
                   }}
                 />
               </div>
+
               <div style={{ gridColumn: "1 / -1" }}>
                 <label
                   style={{
@@ -1464,7 +1275,7 @@ const ProfilePage: React.FC = () => {
                   type="text"
                   value={form.address_line2}
                   onChange={handleChange("address_line2")}
-                  placeholder="Apt, unit, etc."
+                  placeholder="Suite, unit, etc."
                   style={{
                     width: "100%",
                     padding: "0.45rem 0.6rem",
@@ -1476,6 +1287,7 @@ const ProfilePage: React.FC = () => {
                   }}
                 />
               </div>
+
               <div>
                 <label
                   style={{
@@ -1583,346 +1395,61 @@ const ProfilePage: React.FC = () => {
             </div>
           </div>
 
-          {/* Baseball info */}
+          {/* Baseball info (levels coached) */}
           <div>
             <h3
               style={{
-                margin: "0 0 0.4rem",
+                margin: "0.5rem 0 0.4rem",
                 fontSize: "0.95rem",
                 color: PRIMARY_TEXT
               }}
             >
-              Baseball Info
+              Baseball Context
             </h3>
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns:
-                  "repeat(auto-fit, minmax(220px, 1fr))",
-                gap: "0.75rem"
-              }}
-            >
-              <div>
-                <label
-                  style={{
-                    display: "block",
-                    fontSize: "0.8rem",
-                    color: MUTED_TEXT,
-                    marginBottom: "0.25rem"
-                  }}
-                >
-                  Current team
-                </label>
-                <input
-                  type="text"
-                  value={form.current_team}
-                  onChange={handleChange("current_team")}
-                  placeholder="e.g. Raptors 14U"
-                  style={{
-                    width: "100%",
-                    padding: "0.45rem 0.6rem",
-                    borderRadius: "6px",
-                    border: `1px solid ${CARD_BORDER}`,
-                    background: "#020617",
-                    color: PRIMARY_TEXT,
-                    fontSize: "0.9rem"
-                  }}
-                />
-              </div>
-              <div>
-                <label
-                  style={{
-                    display: "block",
-                    fontSize: "0.8rem",
-                    color: MUTED_TEXT,
-                    marginBottom: "0.25rem"
-                  }}
-                >
-                  Current team level
-                </label>
-                <input
-                  type="text"
-                  value={form.current_team_level}
-                  onChange={handleChange("current_team_level")}
-                  placeholder="AA, AAA, travel, etc."
-                  style={{
-                    width: "100%",
-                    padding: "0.45rem 0.6rem",
-                    borderRadius: "6px",
-                    border: `1px solid ${CARD_BORDER}`,
-                    background: "#020617",
-                    color: PRIMARY_TEXT,
-                    fontSize: "0.9rem"
-                  }}
-                />
-              </div>
-              <div>
-                <label
-                  style={{
-                    display: "block",
-                    fontSize: "0.8rem",
-                    color: MUTED_TEXT,
-                    marginBottom: "0.25rem"
-                  }}
-                >
-                  Overall playing level
-                </label>
-                <input
-                  type="text"
-                  value={form.playing_level}
-                  onChange={handleChange("playing_level")}
-                  placeholder="rec, HS, college, pro..."
-                  style={{
-                    width: "100%",
-                    padding: "0.45rem 0.6rem",
-                    borderRadius: "6px",
-                    border: `1px solid ${CARD_BORDER}`,
-                    background: "#020617",
-                    color: PRIMARY_TEXT,
-                    fontSize: "0.9rem"
-                  }}
-                />
-              </div>
-              <div>
-                <label
-                  style={{
-                    display: "block",
-                    fontSize: "0.8rem",
-                    color: MUTED_TEXT,
-                    marginBottom: "0.25rem"
-                  }}
-                >
-                  Jersey number
-                </label>
-                <input
-                  type="text"
-                  value={form.jersey_number}
-                  onChange={handleChange("jersey_number")}
-                  placeholder="e.g. 15"
-                  style={{
-                    width: "100%",
-                    padding: "0.45rem 0.6rem",
-                    borderRadius: "6px",
-                    border: `1px solid ${CARD_BORDER}`,
-                    background: "#020617",
-                    color: PRIMARY_TEXT,
-                    fontSize: "0.9rem"
-                  }}
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Coach info */}
-          <div>
-            <h3
-              style={{
-                margin: "0 0 0.4rem",
-                fontSize: "0.95rem",
-                color: PRIMARY_TEXT
-              }}
-            >
-              Coach Info
-            </h3>
-            <p
-              style={{
-                margin: "0 0 0.4rem",
-                fontSize: "0.8rem",
-                color: MUTED_TEXT
-              }}
-            >
-              We&apos;ll eventually use this to check if your coach is
-              already on Velo and notify / invite them.
-            </p>
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns:
-                  "repeat(auto-fit, minmax(220px, 1fr))",
-                gap: "0.75rem"
-              }}
-            >
-              <div>
-                <label
-                  style={{
-                    display: "block",
-                    fontSize: "0.8rem",
-                    color: MUTED_TEXT,
-                    marginBottom: "0.25rem"
-                  }}
-                >
-                  Coach name
-                </label>
-                <input
-                  type="text"
-                  value={form.current_coach_name}
-                  onChange={handleChange("current_coach_name")}
-                  placeholder="Coach name"
-                  style={{
-                    width: "100%",
-                    padding: "0.45rem 0.6rem",
-                    borderRadius: "6px",
-                    border: `1px solid ${CARD_BORDER}`,
-                    background: "#020617",
-                    color: PRIMARY_TEXT,
-                    fontSize: "0.9rem"
-                  }}
-                />
-              </div>
-              <div>
-                <label
-                  style={{
-                    display: "block",
-                    fontSize: "0.8rem",
-                    color: MUTED_TEXT,
-                    marginBottom: "0.25rem"
-                  }}
-                >
-                  Coach email
-                </label>
-                <input
-                  type="email"
-                  value={form.current_coach_email}
-                  onChange={handleChange("current_coach_email")}
-                  placeholder="coach@example.com"
-                  style={{
-                    width: "100%",
-                    padding: "0.45rem 0.6rem",
-                    borderRadius: "6px",
-                    border: `1px solid ${CARD_BORDER}`,
-                    background: "#020617",
-                    color: PRIMARY_TEXT,
-                    fontSize: "0.9rem"
-                  }}
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Playing history */}
-          <div>
-            <h3
-              style={{
-                margin: "0 0 0.4rem",
-                fontSize: "0.95rem",
-                color: PRIMARY_TEXT
-              }}
-            >
-              Playing History
-            </h3>
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns:
-                  "repeat(auto-fit, minmax(220px, 1fr))",
-                gap: "0.75rem"
-              }}
-            >
-              <div style={{ gridColumn: "1 / -1" }}>
-                <label
-                  style={{
-                    display: "block",
-                    fontSize: "0.8rem",
-                    color: MUTED_TEXT,
-                    marginBottom: "0.25rem"
-                  }}
-                >
-                  Positions played
-                </label>
-                <div
-                  style={{
-                    display: "flex",
-                    flexWrap: "wrap",
-                    gap: "0.35rem"
-                  }}
-                >
-                  {POSITION_CHOICES.map((pos) => {
-                    const selected =
-                      form.positions_played.includes(pos);
-                    return (
-                      <button
-                        key={pos}
-                        type="button"
-                        onClick={() => togglePosition(pos)}
-                        style={{
-                          padding: "0.25rem 0.7rem",
-                          borderRadius: "999px",
-                          border: `1px solid ${
-                            selected ? ACCENT : CARD_BORDER
-                          }`,
-                          background: selected
-                            ? ACCENT
-                            : "transparent",
-                          color: selected ? "#0f172a" : PRIMARY_TEXT,
-                          fontSize: "0.8rem",
-                          cursor: "pointer"
-                        }}
-                      >
-                        {pos}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-              <div>
-                <label
-                  style={{
-                    display: "block",
-                    fontSize: "0.8rem",
-                    color: MUTED_TEXT,
-                    marginBottom: "0.25rem"
-                  }}
-                >
-                  Years played
-                </label>
-                <input
-                  type="number"
-                  min={0}
-                  value={form.years_played}
-                  onChange={handleChange("years_played")}
-                  placeholder="e.g. 4"
-                  style={{
-                    width: "100%",
-                    padding: "0.45rem 0.6rem",
-                    borderRadius: "6px",
-                    border: `1px solid ${CARD_BORDER}`,
-                    background: "#020617",
-                    color: PRIMARY_TEXT,
-                    fontSize: "0.9rem"
-                  }}
-                />
-              </div>
-              <div>
-                <label
-                  style={{
-                    display: "block",
-                    fontSize: "0.8rem",
-                    color: MUTED_TEXT,
-                    marginBottom: "0.25rem"
-                  }}
-                >
-                  Batting average last season
-                </label>
-                <input
-                  type="number"
-                  step="0.001"
-                  min={0}
-                  max={1}
-                  value={form.batting_avg_last_season}
-                  onChange={handleChange(
-                    "batting_avg_last_season"
-                  )}
-                  placeholder="e.g. 0.275"
-                  style={{
-                    width: "100%",
-                    padding: "0.45rem 0.6rem",
-                    borderRadius: "6px",
-                    border: `1px solid ${CARD_BORDER}`,
-                    background: "#020617",
-                    color: PRIMARY_TEXT,
-                    fontSize: "0.9rem"
-                  }}
-                />
+            <div>
+              <label
+                style={{
+                  display: "block",
+                  fontSize: "0.8rem",
+                  color: MUTED_TEXT,
+                  marginBottom: "0.25rem"
+                }}
+              >
+                Levels coached
+              </label>
+              <div
+                style={{
+                  display: "flex",
+                  flexWrap: "wrap",
+                  gap: "0.35rem"
+                }}
+              >
+                {LEVELS_COACHED_CHOICES.map((level) => {
+                  const selected =
+                    form.levels_coached.includes(level);
+                  return (
+                    <button
+                      key={level}
+                      type="button"
+                      onClick={() => toggleLevel(level)}
+                      style={{
+                        padding: "0.25rem 0.7rem",
+                        borderRadius: "999px",
+                        border: `1px solid ${
+                          selected ? ACCENT : CARD_BORDER
+                        }`,
+                        background: selected
+                          ? ACCENT
+                          : "transparent",
+                        color: selected ? "#0f172a" : PRIMARY_TEXT,
+                        fontSize: "0.8rem",
+                        cursor: "pointer"
+                      }}
+                    >
+                      {LEVEL_LABELS[level] ?? level}
+                    </button>
+                  );
+                })}
               </div>
             </div>
           </div>
@@ -1964,4 +1491,4 @@ const ProfilePage: React.FC = () => {
   );
 };
 
-export default ProfilePage;
+export default CoachProfilePage;
