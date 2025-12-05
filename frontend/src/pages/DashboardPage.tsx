@@ -16,10 +16,15 @@ import {
   unlinkChildPlayer,
   type ParentChildPlayer
 } from "../api/profiles";
+import { API_BASE_URL } from "../api/client";
+import { fetchTeamsForProfile, fetchTeamDetail, leaveTeam } from "../api/teams";
+import type { TeamSummary, TeamDetail, TeamMember } from "../api/teams";
+
 
 const PRIMARY_TEXT = "#e5e7eb";
 const MUTED_TEXT = "#9ca3af";
 const ACCENT = "#22c55e";
+const DANGER = "#ef4444";
 const CARD_BORDER = "rgba(148,163,184,0.4)";
 const CARD_BG = "#020617";
 const CARD_SHADOW = "0 8px 20px rgba(0,0,0,0.35)";
@@ -27,6 +32,120 @@ const NAV_BG = "#020617";
 const NAV_BORDER = "rgba(55,65,81,0.9)";
 
 type MainTab = "dashboard" | "library" | "program" | "stats" | "profile";
+type ShellView = "main" | "start-session" | "team-leaderboard";
+type SessionRangeKey = "lifetime" | "today" | "last7d" | "last30d";
+
+interface GainStat {
+  baselineMph: number;
+  currentMph: number;
+  deltaMph: number;
+  deltaPercent: number;
+}
+
+interface SessionCountsSummary {
+  totalCompleted: number;
+  today?: number;
+  last7Days?: number;
+  last30Days?: number;
+}
+
+interface PlayerStatsSummary {
+  playerId: string;
+  gains?: {
+    batSpeed?: GainStat | null;
+    exitVelo?: GainStat | null;
+  };
+  sessionCounts?: SessionCountsSummary;
+}
+
+interface UpcomingSessionSummary {
+  id: string;
+  label: string;
+  subLabel?: string;
+  scheduledFor?: string;
+}
+
+/**
+ * Lightweight wrapper around /players/:playerId/stats
+ * for dashboard usage.
+ */
+async function fetchPlayerStatsSummary(
+  playerId: string
+): Promise<PlayerStatsSummary | null> {
+  const res = await fetch(`${API_BASE_URL}/players/${playerId}/stats`);
+  if (res.status === 404) {
+    return null;
+  }
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(
+      `Failed to load player stats: ${res.status} ${text.slice(0, 200)}`
+    );
+  }
+  return res.json();
+}
+
+/**
+ * Fetch the first upcoming program session for a player.
+ * This expects a backend endpoint like:
+ *   GET /players/:playerId/upcoming-sessions?limit=1
+ * returning { sessions: [...] }.
+ * You can adapt the mapping below to your actual response shape.
+ */
+async function fetchNextUpcomingSessionForPlayer(
+  playerId: string
+): Promise<UpcomingSessionSummary | null> {
+  const res = await fetch(
+    `${API_BASE_URL}/players/${playerId}/upcoming-sessions?limit=1`
+  );
+  if (res.status === 404) {
+    return null;
+  }
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(
+      `Failed to load upcoming sessions: ${res.status} ${text.slice(0, 200)}`
+    );
+  }
+  const data = await res.json();
+  const first = data?.sessions?.[0];
+  if (!first) return null;
+
+  const dayNumber: number | undefined =
+    typeof first.dayNumber === "number" ? first.dayNumber : undefined;
+  const phaseName: string | undefined = first.phaseName ?? first.phase ?? undefined;
+  const title: string | undefined = first.title ?? first.label ?? undefined;
+
+  const dayLabel =
+    dayNumber && dayNumber > 0 ? `Day ${dayNumber}` : undefined;
+  const subLabel =
+    phaseName && dayLabel ? `${phaseName} • ${dayLabel}` : phaseName || dayLabel;
+
+  const label =
+    title ??
+    subLabel ??
+    "Upcoming training";
+
+  const scheduledFor: string | undefined =
+    first.scheduledFor ?? first.date ?? first.scheduled_at ?? undefined;
+
+  return {
+    id: first.id ?? `${playerId}-next-session`,
+    label,
+    subLabel,
+    scheduledFor
+  };
+}
+
+interface CoachTeamMetrics {
+  teamId: string;
+  playerCount: number;
+  sessionsLifetime: number;
+  sessionsToday: number;
+  sessionsLast7d: number;
+  sessionsLast30d: number;
+  avgBatSpeedGainPct: number | null;
+}
 
 function generateDummyEmail(firstName: string, lastName: string): string {
   const base = `${firstName ?? ""}${lastName ?? ""}`
@@ -37,15 +156,50 @@ function generateDummyEmail(firstName: string, lastName: string): string {
   return `${safeBase}-${rand}@baseballpop.com`;
 }
 
+function getSessionsForRange(
+  metrics: CoachTeamMetrics,
+  range: SessionRangeKey
+): number {
+  switch (range) {
+    case "today":
+      return metrics.sessionsToday;
+    case "last7d":
+      return metrics.sessionsLast7d;
+    case "last30d":
+      return metrics.sessionsLast30d;
+    case "lifetime":
+    default:
+      return metrics.sessionsLifetime;
+  }
+}
+
+const SESSION_RANGE_LABELS: Record<SessionRangeKey, string> = {
+  lifetime: "Lifetime",
+  today: "Today",
+  last7d: "Last 7 days",
+  last30d: "Last 30 days"
+};
+
+function formatDateShort(isoDate: string): string {
+  if (!isoDate) return "";
+  const d = new Date(isoDate);
+  if (Number.isNaN(d.getTime())) {
+    return isoDate.slice(0, 10);
+  }
+  return d.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric"
+  });
+}
+
 const DashboardPage: React.FC = () => {
   const { currentProfile, setCurrentProfile } = useAuth();
-  const [shellView, setShellView] = useState<"main" | "start-session">("main");
+  const [shellView, setShellView] = useState<ShellView>("main");
   const [activeTab, setActiveTab] = useState<MainTab>("dashboard");
 
   // If we launched StartSessionPage from My Program, this holds the protocol title to auto-start.
-  const [programProtocolTitle, setProgramProtocolTitle] = useState<string | null>(
-    null
-  );
+  const [programProtocolTitle, setProgramProtocolTitle] =
+    useState<string | null>(null);
 
   if (!currentProfile) return null;
 
@@ -57,7 +211,9 @@ const DashboardPage: React.FC = () => {
 
   const [parentPlayers, setParentPlayers] = useState<ParentChildPlayer[]>([]);
   const [parentPlayersLoading, setParentPlayersLoading] = useState(false);
-  const [parentPlayersError, setParentPlayersError] = useState<string | null>(null);
+  const [parentPlayersError, setParentPlayersError] = useState<string | null>(
+    null
+  );
   const [selectedPlayerId, setSelectedPlayerId] = useState<string | null>(null);
 
   const [addPlayerForm, setAddPlayerForm] = useState<{
@@ -81,6 +237,51 @@ const DashboardPage: React.FC = () => {
   const [addPlayerSuccess, setAddPlayerSuccess] = useState<string | null>(null);
   const [inviteSuccess, setInviteSuccess] = useState<string | null>(null);
 
+  // ---- Player/parent dashboard stats (bat speed gain, sessions) ----
+  const [playerStatsForDashboard, setPlayerStatsForDashboard] =
+    useState<PlayerStatsSummary | null>(null);
+  const [playerStatsLoading, setPlayerStatsLoading] = useState(false);
+  const [playerStatsError, setPlayerStatsError] = useState<string | null>(null);
+
+  // ---- Player/parent next upcoming session ----
+  const [nextSessionForDashboard, setNextSessionForDashboard] =
+    useState<UpcomingSessionSummary | null>(null);
+  const [nextSessionLoading, setNextSessionLoading] = useState(false);
+  const [nextSessionError, setNextSessionError] = useState<string | null>(null);
+
+  // ---- Team membership for players & parent-selected players ----
+  const [playerTeams, setPlayerTeams] = useState<TeamSummary[]>([]);
+  const [playerTeamsLoading, setPlayerTeamsLoading] = useState(false);
+  const [playerTeamsError, setPlayerTeamsError] = useState<string | null>(null);
+
+  const [parentChildTeams, setParentChildTeams] = useState<TeamSummary[]>([]);
+  const [parentChildTeamsLoading, setParentChildTeamsLoading] =
+    useState(false);
+  const [parentChildTeamsError, setParentChildTeamsError] = useState<
+    string | null
+  >(null);
+
+  // ---- Coach teams + aggregate metrics ----
+  const [coachTeams, setCoachTeams] = useState<TeamSummary[]>([]);
+  const [coachTeamsLoading, setCoachTeamsLoading] = useState(false);
+  const [coachTeamsError, setCoachTeamsError] = useState<string | null>(null);
+
+  const [coachTeamMetrics, setCoachTeamMetrics] = useState<CoachTeamMetrics[]>(
+    []
+  );
+  const [coachMetricsLoading, setCoachMetricsLoading] = useState(false);
+  const [coachMetricsError, setCoachMetricsError] = useState<string | null>(
+    null
+  );
+  const [coachSessionsRange, setCoachSessionsRange] =
+    useState<SessionRangeKey>("lifetime");
+
+  // ---- Overlay for viewing a team leaderboard from the dashboard ----
+  const [leaderboardTeamId, setLeaderboardTeamId] = useState<string | null>(
+    null
+  );
+
+  // ---- Parent: load linked players ----
   useEffect(() => {
     if (!isParent) return;
 
@@ -120,12 +321,294 @@ const DashboardPage: React.FC = () => {
       ? parentPlayers.find((p) => p.id === selectedPlayerId) ?? null
       : null;
 
+  // ---- Stats for whichever player is "in focus" (player or parent-selected child) ----
+  const targetPlayerIdForDashboard =
+    isPlayer && !isParent
+      ? currentProfile.id
+      : isParent && selectedPlayer
+      ? selectedPlayer.id
+      : null;
+
+  useEffect(() => {
+    if (!targetPlayerIdForDashboard) {
+      setPlayerStatsForDashboard(null);
+      return;
+    }
+
+    let cancelled = false;
+
+    const load = async () => {
+      try {
+        setPlayerStatsLoading(true);
+        setPlayerStatsError(null);
+        const stats = await fetchPlayerStatsSummary(targetPlayerIdForDashboard);
+        if (cancelled) return;
+        setPlayerStatsForDashboard(stats);
+      } catch (err: any) {
+        if (cancelled) return;
+        setPlayerStatsError(
+          err?.message ?? "Failed to load bat speed stats"
+        );
+        setPlayerStatsForDashboard(null);
+      } finally {
+        if (!cancelled) {
+          setPlayerStatsLoading(false);
+        }
+      }
+    };
+
+    load();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [targetPlayerIdForDashboard]);
+
+  // ---- Upcoming session for whichever player is "in focus" ----
+  useEffect(() => {
+    if (!targetPlayerIdForDashboard) {
+      setNextSessionForDashboard(null);
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadNext = async () => {
+      try {
+        setNextSessionLoading(true);
+        setNextSessionError(null);
+        const next = await fetchNextUpcomingSessionForPlayer(
+          targetPlayerIdForDashboard
+        );
+        if (cancelled) return;
+        setNextSessionForDashboard(next);
+      } catch (err: any) {
+        if (cancelled) return;
+        setNextSessionError(
+          err?.message ?? "Failed to load upcoming session"
+        );
+        setNextSessionForDashboard(null);
+      } finally {
+        if (!cancelled) {
+          setNextSessionLoading(false);
+        }
+      }
+    };
+
+    loadNext();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [targetPlayerIdForDashboard]);
+
+  // ---- Teams for a logged-in player ----
+  useEffect(() => {
+    if (!isPlayer || !currentProfile?.id) return;
+
+    let cancelled = false;
+
+    const loadTeams = async () => {
+      try {
+        setPlayerTeamsLoading(true);
+        setPlayerTeamsError(null);
+        const teams = await fetchTeamsForProfile(currentProfile.id);
+        if (cancelled) return;
+        setPlayerTeams(teams);
+      } catch (err: any) {
+        if (!cancelled) {
+          setPlayerTeamsError(
+            err?.message ?? "Failed to load player teams"
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setPlayerTeamsLoading(false);
+        }
+      }
+    };
+
+    loadTeams();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isPlayer, currentProfile?.id]);
+
+  // ---- Teams for the currently selected child in parent view ----
+  useEffect(() => {
+    if (!isParent) {
+      setParentChildTeams([]);
+      return;
+    }
+    if (!selectedPlayer) {
+      setParentChildTeams([]);
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadTeams = async () => {
+      try {
+        setParentChildTeamsLoading(true);
+        setParentChildTeamsError(null);
+        const teams = await fetchTeamsForProfile(selectedPlayer.id);
+        if (cancelled) return;
+        setParentChildTeams(teams);
+      } catch (err: any) {
+        if (!cancelled) {
+          setParentChildTeamsError(
+            err?.message ?? "Failed to load player teams"
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setParentChildTeamsLoading(false);
+        }
+      }
+    };
+
+    loadTeams();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isParent, selectedPlayer]);
+
+  // ---- Coach teams + aggregate metrics (sessions + bat speed gains) ----
+  useEffect(() => {
+    if (!isCoach || !currentProfile?.id) {
+      setCoachTeams([]);
+      setCoachTeamMetrics([]);
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadCoachTeamsAndMetrics = async () => {
+      try {
+        setCoachTeamsLoading(true);
+        setCoachMetricsLoading(true);
+        setCoachTeamsError(null);
+        setCoachMetricsError(null);
+
+        const teams = await fetchTeamsForProfile(currentProfile.id);
+        if (cancelled) return;
+        setCoachTeams(teams);
+
+        const metrics: CoachTeamMetrics[] = [];
+
+        for (const team of teams) {
+          try {
+            const detail: TeamDetail = await fetchTeamDetail(
+              team.id,
+              currentProfile.id
+            );
+            if (cancelled) return;
+
+            const playerMembers: TeamMember[] =
+              detail.members?.filter(
+                (m: TeamMember) =>
+                  m.memberRole === "player" &&
+                  !!m.profileId &&
+                  !!m.acceptedAt
+              ) ?? [];
+
+            let sessionsLifetime = 0;
+            let sessionsToday = 0;
+            let sessionsLast7d = 0;
+            let sessionsLast30d = 0;
+            const batGainValues: number[] = [];
+
+            for (const member of playerMembers) {
+              if (!member.profileId) continue;
+              try {
+                const stats = await fetchPlayerStatsSummary(member.profileId);
+                if (cancelled) return;
+                if (!stats) continue;
+
+                const sc = stats.sessionCounts ?? {};
+                const lifetime = sc.totalCompleted ?? 0;
+                const today = sc.today ?? 0;
+                const last7 = sc.last7Days ?? 0;
+                const last30 = sc.last30Days ?? 0;
+
+                sessionsLifetime += lifetime;
+                sessionsToday += today;
+                sessionsLast7d += last7;
+                sessionsLast30d += last30;
+
+                const gainPct = stats.gains?.batSpeed?.deltaPercent;
+                if (
+                  typeof gainPct === "number" &&
+                  Number.isFinite(gainPct)
+                ) {
+                  batGainValues.push(gainPct);
+                }
+              } catch (err) {
+                console.error(
+                  "Failed to load stats for team member",
+                  member.profileId,
+                  err
+                );
+              }
+            }
+
+            const avgBatGain =
+              batGainValues.length > 0
+                ? batGainValues.reduce((sum, v) => sum + v, 0) /
+                  batGainValues.length
+                : null;
+
+            metrics.push({
+              teamId: team.id,
+              playerCount: playerMembers.length,
+              sessionsLifetime,
+              sessionsToday,
+              sessionsLast7d,
+              sessionsLast30d,
+              avgBatSpeedGainPct: avgBatGain
+            });
+          } catch (err) {
+            console.error("Failed to load team metrics for team", team.id, err);
+          }
+        }
+
+        if (cancelled) return;
+        setCoachTeamMetrics(metrics);
+      } catch (err: any) {
+        if (!cancelled) {
+          setCoachTeamsError(
+            err?.message ?? "Failed to load coach teams"
+          );
+          setCoachMetricsError(
+            err?.message ?? "Failed to load team metrics"
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setCoachTeamsLoading(false);
+          setCoachMetricsLoading(false);
+        }
+      }
+    };
+
+    loadCoachTeamsAndMetrics();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isCoach, currentProfile?.id]);
+
   const handleLogout = () => {
     setCurrentProfile(null);
   };
 
   // When you're inside the Start Session flow, show that full-screen
   if (shellView === "start-session") {
+    const playerIdOverride =
+      isParent && selectedPlayer ? selectedPlayer.id : undefined;
+
     return (
       <main
         style={{
@@ -139,6 +622,33 @@ const DashboardPage: React.FC = () => {
             setShellView("main");
             setProgramProtocolTitle(null);
           }}
+          playerIdOverride={playerIdOverride}
+          initialProtocolTitle={programProtocolTitle ?? undefined}
+        />
+      </main>
+    );
+  }
+
+
+
+  // When viewing a team leaderboard from the dashboard
+  if (shellView === "team-leaderboard") {
+    return (
+      <main
+        style={{
+          maxWidth: "1024px",
+          margin: "0 auto",
+          padding: "1rem"
+        }}
+      >
+        <TeamStatsPage
+          onBack={() => {
+            setShellView("main");
+            setLeaderboardTeamId(null);
+          }}
+          // Coaches get full coach mode; players/parents get read-only leaderboard
+          mode={isCoach ? "coach" : "player"}
+          initialTeamId={leaderboardTeamId ?? undefined}
         />
       </main>
     );
@@ -170,7 +680,9 @@ const DashboardPage: React.FC = () => {
     (field: "first_name" | "last_name" | "email" | "noEmail") =>
     (e: React.ChangeEvent<HTMLInputElement>) => {
       const value =
-        field === "noEmail" ? (e.target as HTMLInputElement).checked : e.target.value;
+        field === "noEmail"
+          ? (e.target as HTMLInputElement).checked
+          : e.target.value;
       setAddPlayerForm((prev) => ({ ...prev, [field]: value as any }));
       setAddPlayerError(null);
       setAddPlayerSuccess(null);
@@ -235,7 +747,10 @@ const DashboardPage: React.FC = () => {
 
     try {
       setInviteSaving(true);
-      const resp = await inviteExistingPlayerToParent(currentProfile.id, email);
+      const resp = await inviteExistingPlayerToParent(
+        currentProfile.id,
+        email
+      );
       setInviteSuccess(resp.message ?? "Invite recorded.");
 
       if (resp.player) {
@@ -274,404 +789,246 @@ const DashboardPage: React.FC = () => {
     }
   };
 
-  // ---- Dashboard tab content ----
+  // Player: leave team (real backend wiring)
+  const handleLeaveTeam = async (teamId: string) => {
+    if (!isPlayer || !currentProfile?.id) return;
 
-  const renderDashboardTab = () => {
-    if (isParent) {
-      return (
-        <section
+    const confirmLeave = window.confirm(
+      "Leave this team? Your stats will no longer appear on its leaderboard."
+    );
+    if (!confirmLeave) return;
+
+    try {
+      await leaveTeam(teamId, currentProfile.id);
+      // Optimistic UI: remove the team locally
+      setPlayerTeams((prev) => prev.filter((t) => t.id !== teamId));
+    } catch (err: any) {
+      const message =
+        err?.message ??
+        "Failed to leave team. Please try again or contact your coach.";
+      alert(message);
+    }
+  };
+
+
+  // ---- Parent manage section (Your Players / Add / Invite) ----
+  const renderParentManageSection = () => {
+    return (
+      <section
+        style={{
+          display: "grid",
+          gridTemplateColumns: "minmax(0, 1.6fr) minmax(0, 1.4fr)",
+          gap: "1rem",
+          alignItems: "stretch",
+          marginTop: "1rem"
+        }}
+      >
+        {/* Left: linked players & manage */}
+        <div
           style={{
-            display: "grid",
-            gridTemplateColumns: "minmax(0, 1.6fr) minmax(0, 1.4fr)",
-            gap: "1rem",
-            alignItems: "stretch",
-            marginTop: "0.5rem"
+            display: "flex",
+            flexDirection: "column",
+            gap: "1rem"
           }}
         >
-          {/* Left: linked players & manage */}
+          {/* Linked players */}
           <div
             style={{
-              display: "flex",
-              flexDirection: "column",
-              gap: "1rem"
+              borderRadius: "12px",
+              border: `1px solid ${CARD_BORDER}`,
+              background: CARD_BG,
+              boxShadow: CARD_SHADOW,
+              padding: "1rem"
             }}
           >
-            {/* Linked players */}
-            <div
+            <h2
               style={{
-                borderRadius: "12px",
-                border: `1px solid ${CARD_BORDER}`,
-                background: CARD_BG,
-                boxShadow: CARD_SHADOW,
-                padding: "1rem"
+                margin: "0 0 0.5rem",
+                fontSize: "1.1rem",
+                color: PRIMARY_TEXT
               }}
             >
-              <h2
-                style={{
-                  margin: "0 0 0.5rem",
-                  fontSize: "1.1rem",
-                  color: PRIMARY_TEXT
-                }}
-              >
-                Your Players
-              </h2>
-              <p
-                style={{
-                  margin: "0 0 0.75rem",
-                  fontSize: "0.9rem",
-                  color: MUTED_TEXT
-                }}
-              >
-                Add new players you manage directly, or invite players who already
-                have a Velo account to connect to your parent profile.
-              </p>
+              Your Players
+            </h2>
+            <p
+              style={{
+                margin: "0 0 0.75rem",
+                fontSize: "0.9rem",
+                color: MUTED_TEXT
+              }}
+            >
+              Add new players you manage directly, or invite players who
+              already have a Velo account to connect to your parent
+              profile.
+            </p>
 
-              {parentPlayersLoading ? (
-                <p style={{ fontSize: "0.85rem", color: MUTED_TEXT }}>
-                  Loading players...
-                </p>
-              ) : parentPlayers.length === 0 ? (
-                <p style={{ fontSize: "0.85rem", color: MUTED_TEXT }}>
-                  No players linked yet. Use the forms below to{" "}
-                  <strong>add</strong> or <strong>invite</strong> a player.
-                </p>
-              ) : (
-                <div
-                  style={{
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: "0.5rem",
-                    marginBottom: "0.5rem"
-                  }}
-                >
-                  {parentPlayers.map((p) => {
-                    const name = `${p.first_name ?? ""} ${
-                      p.last_name ?? ""
-                    }`.trim();
-                    const isSelected = selectedPlayerId === p.id;
-                    return (
-                      <div
-                        key={p.id}
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "space-between",
-                          padding: "0.45rem 0.6rem",
-                          borderRadius: "10px",
-                          border: `1px solid ${CARD_BORDER}`,
-                          background: "#020617"
-                        }}
-                      >
-                        <div>
-                          <div
-                            style={{
-                              fontSize: "0.9rem",
-                              color: PRIMARY_TEXT,
-                              fontWeight: 500
-                            }}
-                          >
-                            {name || "(Unnamed player)"}
-                          </div>
-                          <div
-                            style={{
-                              fontSize: "0.8rem",
-                              color: MUTED_TEXT
-                            }}
-                          >
-                            {p.email || "No email on file"}
-                          </div>
-                          {isSelected && (
-                            <div
-                              style={{
-                                fontSize: "0.75rem",
-                                color: ACCENT,
-                                marginTop: "0.15rem"
-                              }}
-                            >
-                              Viewing app as this player
-                            </div>
-                          )}
+            {parentPlayersLoading ? (
+              <p style={{ fontSize: "0.85rem", color: MUTED_TEXT }}>
+                Loading players...
+              </p>
+            ) : parentPlayers.length === 0 ? (
+              <p style={{ fontSize: "0.85rem", color: MUTED_TEXT }}>
+                No players linked yet. Use the forms below to{" "}
+                <strong>add</strong> or <strong>invite</strong> a player.
+              </p>
+            ) : (
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "0.5rem",
+                  marginBottom: "0.5rem"
+                }}
+              >
+                {parentPlayers.map((p) => {
+                  const name = `${p.first_name ?? ""} ${
+                    p.last_name ?? ""
+                  }`.trim();
+                  const isSelected = selectedPlayerId === p.id;
+                  return (
+                    <div
+                      key={p.id}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        padding: "0.45rem 0.6rem",
+                        borderRadius: "10px",
+                        border: `1px solid ${CARD_BORDER}`,
+                        background: "#020617"
+                      }}
+                    >
+                      <div>
+                        <div
+                          style={{
+                            fontSize: "0.9rem",
+                            color: PRIMARY_TEXT,
+                            fontWeight: 500
+                          }}
+                        >
+                          {name || "(Unnamed player)"}
                         </div>
                         <div
                           style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: "0.4rem"
+                            fontSize: "0.8rem",
+                            color: MUTED_TEXT
                           }}
                         >
-                          <button
-                            type="button"
-                            onClick={() => setSelectedPlayerId(p.id)}
-                            style={{
-                              padding: "0.3rem 0.7rem",
-                              borderRadius: "999px",
-                              border: `1px solid ${
-                                isSelected ? ACCENT : CARD_BORDER
-                              }`,
-                              background: isSelected ? ACCENT : "transparent",
-                              color: isSelected ? "#0f172a" : PRIMARY_TEXT,
-                              fontSize: "0.8rem",
-                              cursor: "pointer"
-                            }}
-                          >
-                            {isSelected ? "Selected" : "View as"}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleUnlinkPlayer(p.id)}
-                            style={{
-                              padding: "0.3rem 0.7rem",
-                              borderRadius: "999px",
-                              border: "1px solid #b91c1c",
-                              background: "transparent",
-                              color: "#fecaca",
-                              fontSize: "0.8rem",
-                              cursor: "pointer"
-                            }}
-                          >
-                            Unlink
-                          </button>
+                          {p.email || "No email on file"}
                         </div>
+                        {isSelected && (
+                          <div
+                            style={{
+                              fontSize: "0.75rem",
+                              color: ACCENT,
+                              marginTop: "0.15rem"
+                            }}
+                          >
+                            Viewing app as this player
+                          </div>
+                        )}
                       </div>
-                    );
-                  })}
-                </div>
-              )}
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "0.4rem"
+                        }}
+                      >
+                        <button
+                          type="button"
+                          onClick={() => setSelectedPlayerId(p.id)}
+                          style={{
+                            padding: "0.3rem 0.7rem",
+                            borderRadius: "999px",
+                            border: `1px solid ${
+                              isSelected ? ACCENT : CARD_BORDER
+                            }`,
+                            background: isSelected ? ACCENT : "transparent",
+                            color: isSelected ? "#0f172a" : PRIMARY_TEXT,
+                            fontSize: "0.8rem",
+                            cursor: "pointer"
+                          }}
+                        >
+                          {isSelected ? "Selected" : "View as"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleUnlinkPlayer(p.id)}
+                          style={{
+                            padding: "0.3rem 0.7rem",
+                            borderRadius: "999px",
+                            border: "1px solid #b91c1c",
+                            background: "transparent",
+                            color: "#fecaca",
+                            fontSize: "0.8rem",
+                            cursor: "pointer"
+                          }}
+                        >
+                          Unlink
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
 
-              {parentPlayersError && (
-                <p
-                  style={{
-                    margin: 0,
-                    fontSize: "0.8rem",
-                    color: "#f87171"
-                  }}
-                >
-                  {parentPlayersError}
-                </p>
-              )}
-            </div>
-
-            {/* Add player */}
-            <div
-              style={{
-                borderRadius: "12px",
-                border: `1px solid ${CARD_BORDER}`,
-                background: CARD_BG,
-                boxShadow: CARD_SHADOW,
-                padding: "1rem"
-              }}
-            >
-              <h3
-                style={{
-                  margin: "0 0 0.4rem",
-                  fontSize: "1rem",
-                  color: PRIMARY_TEXT
-                }}
-              >
-                Add a Player
-              </h3>
+            {parentPlayersError && (
               <p
                 style={{
-                  margin: "0 0 0.75rem",
-                  fontSize: "0.85rem",
-                  color: MUTED_TEXT
+                  margin: 0,
+                  fontSize: "0.8rem",
+                  color: "#f87171"
                 }}
               >
-                Use this for younger players where you manage their account. We&apos;ll
-                create a player profile and link it to your parent account.
+                {parentPlayersError}
               </p>
-
-              <form
-                onSubmit={handleSubmitAddPlayer}
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-                  gap: "0.6rem",
-                  fontSize: "0.85rem"
-                }}
-              >
-                <div>
-                  <label
-                    style={{
-                      display: "block",
-                      fontSize: "0.8rem",
-                      color: MUTED_TEXT,
-                      marginBottom: "0.2rem"
-                    }}
-                  >
-                    First name
-                  </label>
-                  <input
-                    type="text"
-                    value={addPlayerForm.first_name}
-                    onChange={handleAddPlayerChange("first_name")}
-                    style={{
-                      width: "100%",
-                      padding: "0.4rem 0.6rem",
-                      borderRadius: "6px",
-                      border: `1px solid ${CARD_BORDER}`,
-                      background: "#020617",
-                      color: PRIMARY_TEXT,
-                      fontSize: "0.9rem"
-                    }}
-                  />
-                </div>
-                <div>
-                  <label
-                    style={{
-                      display: "block",
-                      fontSize: "0.8rem",
-                      color: MUTED_TEXT,
-                      marginBottom: "0.2rem"
-                    }}
-                  >
-                    Last name
-                  </label>
-                  <input
-                    type="text"
-                    value={addPlayerForm.last_name}
-                    onChange={handleAddPlayerChange("last_name")}
-                    style={{
-                      width: "100%",
-                      padding: "0.4rem 0.6rem",
-                      borderRadius: "6px",
-                      border: `1px solid ${CARD_BORDER}`,
-                      background: "#020617",
-                      color: PRIMARY_TEXT,
-                      fontSize: "0.9rem"
-                    }}
-                  />
-                </div>
-                <div>
-                  <label
-                    style={{
-                      display: "block",
-                      fontSize: "0.8rem",
-                      color: MUTED_TEXT,
-                      marginBottom: "0.2rem"
-                    }}
-                  >
-                    Player email (optional)
-                  </label>
-                  <input
-                    type="email"
-                    value={addPlayerForm.email}
-                    onChange={handleAddPlayerChange("email")}
-                    placeholder="player@example.com"
-                    style={{
-                      width: "100%",
-                      padding: "0.4rem 0.6rem",
-                      borderRadius: "6px",
-                      border: `1px solid ${CARD_BORDER}`,
-                      background: "#020617",
-                      color: PRIMARY_TEXT,
-                      fontSize: "0.9rem"
-                    }}
-                  />
-                  <label
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "0.3rem",
-                      marginTop: "0.3rem",
-                      fontSize: "0.8rem",
-                      color: MUTED_TEXT
-                    }}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={addPlayerForm.noEmail}
-                      onChange={handleAddPlayerChange("noEmail")}
-                    />
-                    Player doesn&apos;t have an email address
-                  </label>
-                </div>
-
-                <div style={{ gridColumn: "1 / -1" }}>
-                  {addPlayerError && (
-                    <p
-                      style={{
-                        margin: "0 0 0.3rem",
-                        fontSize: "0.8rem",
-                        color: "#f87171"
-                      }}
-                    >
-                      {addPlayerError}
-                    </p>
-                  )}
-                  {addPlayerSuccess && (
-                    <p
-                      style={{
-                        margin: "0 0 0.3rem",
-                        fontSize: "0.8rem",
-                        color: ACCENT
-                      }}
-                    >
-                      {addPlayerSuccess}
-                    </p>
-                  )}
-                  <button
-                    type="submit"
-                    disabled={addPlayerSaving}
-                    style={{
-                      marginTop: "0.25rem",
-                      padding: "0.5rem 1rem",
-                      borderRadius: "999px",
-                      border: "none",
-                      cursor: "pointer",
-                      background: ACCENT,
-                      color: "#0f172a",
-                      fontWeight: 600,
-                      fontSize: "0.9rem"
-                    }}
-                  >
-                    {addPlayerSaving ? "Adding..." : "Add player"}
-                  </button>
-                </div>
-              </form>
-            </div>
+            )}
           </div>
 
-          {/* Right: Invite and info */}
+          {/* Add player */}
           <div
             style={{
-              display: "flex",
-              flexDirection: "column",
-              gap: "1rem"
+              borderRadius: "12px",
+              border: `1px solid ${CARD_BORDER}`,
+              background: CARD_BG,
+              boxShadow: CARD_SHADOW,
+              padding: "1rem"
             }}
           >
-            {/* Invite player */}
-            <div
+            <h3
               style={{
-                borderRadius: "12px",
-                border: `1px solid ${CARD_BORDER}`,
-                background: CARD_BG,
-                boxShadow: CARD_SHADOW,
-                padding: "1rem"
+                margin: "0 0 0.4rem",
+                fontSize: "1rem",
+                color: PRIMARY_TEXT
               }}
             >
-              <h3
-                style={{
-                  margin: "0 0 0.4rem",
-                  fontSize: "1rem",
-                  color: PRIMARY_TEXT
-                }}
-              >
-                Invite an Existing Player
-              </h3>
-              <p
-                style={{
-                  margin: "0 0 0.75rem",
-                  fontSize: "0.85rem",
-                  color: MUTED_TEXT
-                }}
-              >
-                Use this when the player already has a Velo login. We&apos;ll link
-                their account to your parent profile and (later) send an email for
-                confirmation.
-              </p>
+              Add a Player
+            </h3>
+            <p
+              style={{
+                margin: "0 0 0.75rem",
+                fontSize: "0.85rem",
+                color: MUTED_TEXT
+              }}
+            >
+              Use this for younger players where you manage their
+              account. We&apos;ll create a player profile and link it to
+              your parent account.
+            </p>
 
-              <form onSubmit={handleSubmitInvitePlayer}>
+            <form
+              onSubmit={handleSubmitAddPlayer}
+              style={{
+                display: "grid",
+                gridTemplateColumns:
+                  "repeat(auto-fit, minmax(180px, 1fr))",
+                gap: "0.6rem",
+                fontSize: "0.85rem"
+              }}
+            >
+              <div>
                 <label
                   style={{
                     display: "block",
@@ -680,16 +1037,64 @@ const DashboardPage: React.FC = () => {
                     marginBottom: "0.2rem"
                   }}
                 >
-                  Player email
+                  First name
+                </label>
+                <input
+                  type="text"
+                  value={addPlayerForm.first_name}
+                  onChange={handleAddPlayerChange("first_name")}
+                  style={{
+                    width: "100%",
+                    padding: "0.4rem 0.6rem",
+                    borderRadius: "6px",
+                    border: `1px solid ${CARD_BORDER}`,
+                    background: "#020617",
+                    color: PRIMARY_TEXT,
+                    fontSize: "0.9rem"
+                  }}
+                />
+              </div>
+              <div>
+                <label
+                  style={{
+                    display: "block",
+                    fontSize: "0.8rem",
+                    color: MUTED_TEXT,
+                    marginBottom: "0.2rem"
+                  }}
+                >
+                  Last name
+                </label>
+                <input
+                  type="text"
+                  value={addPlayerForm.last_name}
+                  onChange={handleAddPlayerChange("last_name")}
+                  style={{
+                    width: "100%",
+                    padding: "0.4rem 0.6rem",
+                    borderRadius: "6px",
+                    border: `1px solid ${CARD_BORDER}`,
+                    background: "#020617",
+                    color: PRIMARY_TEXT,
+                    fontSize: "0.9rem"
+                  }}
+                />
+              </div>
+              <div>
+                <label
+                  style={{
+                    display: "block",
+                    fontSize: "0.8rem",
+                    color: MUTED_TEXT,
+                    marginBottom: "0.2rem"
+                  }}
+                >
+                  Player email (optional)
                 </label>
                 <input
                   type="email"
-                  value={inviteEmail}
-                  onChange={(e) => {
-                    setInviteEmail(e.target.value);
-                    setInviteError(null);
-                    setInviteSuccess(null);
-                  }}
+                  value={addPlayerForm.email}
+                  onChange={handleAddPlayerChange("email")}
                   placeholder="player@example.com"
                   style={{
                     width: "100%",
@@ -698,11 +1103,30 @@ const DashboardPage: React.FC = () => {
                     border: `1px solid ${CARD_BORDER}`,
                     background: "#020617",
                     color: PRIMARY_TEXT,
-                    fontSize: "0.9rem",
-                    marginBottom: "0.4rem"
+                    fontSize: "0.9rem"
                   }}
                 />
-                {inviteError && (
+                <label
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "0.3rem",
+                    marginTop: "0.3rem",
+                    fontSize: "0.8rem",
+                    color: MUTED_TEXT
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={addPlayerForm.noEmail}
+                    onChange={handleAddPlayerChange("noEmail")}
+                  />
+                  Player doesn&apos;t have an email address
+                </label>
+              </div>
+
+              <div style={{ gridColumn: "1 / -1" }}>
+                {addPlayerError && (
                   <p
                     style={{
                       margin: "0 0 0.3rem",
@@ -710,10 +1134,10 @@ const DashboardPage: React.FC = () => {
                       color: "#f87171"
                     }}
                   >
-                    {inviteError}
+                    {addPlayerError}
                   </p>
                 )}
-                {inviteSuccess && (
+                {addPlayerSuccess && (
                   <p
                     style={{
                       margin: "0 0 0.3rem",
@@ -721,13 +1145,14 @@ const DashboardPage: React.FC = () => {
                       color: ACCENT
                     }}
                   >
-                    {inviteSuccess}
+                    {addPlayerSuccess}
                   </p>
                 )}
                 <button
                   type="submit"
-                  disabled={inviteSaving}
+                  disabled={addPlayerSaving}
                   style={{
+                    marginTop: "0.25rem",
                     padding: "0.5rem 1rem",
                     borderRadius: "999px",
                     border: "none",
@@ -738,58 +1163,14 @@ const DashboardPage: React.FC = () => {
                     fontSize: "0.9rem"
                   }}
                 >
-                  {inviteSaving ? "Sending..." : "Send invite"}
+                  {addPlayerSaving ? "Adding..." : "Add player"}
                 </button>
-              </form>
-            </div>
-
-            {/* Info / coming soon */}
-            <div
-              style={{
-                borderRadius: "12px",
-                border: `1px solid ${CARD_BORDER}`,
-                background: CARD_BG,
-                boxShadow: CARD_SHADOW,
-                padding: "1rem"
-              }}
-            >
-              <h3
-                style={{
-                  margin: "0 0 0.4rem",
-                  fontSize: "1rem",
-                  color: PRIMARY_TEXT
-                }}
-              >
-                How Parent View Works
-              </h3>
-              <p
-                style={{
-                  margin: 0,
-                  fontSize: "0.85rem",
-                  color: MUTED_TEXT
-                }}
-              >
-                Use the player selector above the tabs to switch which player you&apos;re
-                viewing. Program, stats, and profile tabs will behave as if you were
-                logged in as that player, while you stay in your parent account.
-              </p>
-            </div>
+              </div>
+            </form>
           </div>
-        </section>
-      );
-    }
+        </div>
 
-    // Existing player/coach dashboard
-    return (
-      <section
-        style={{
-          display: "grid",
-          gridTemplateColumns: "minmax(0, 1.6fr) minmax(0, 1.4fr)",
-          gap: "1rem",
-          alignItems: "stretch"
-        }}
-      >
-        {/* Left column: Next training session + Start a session */}
+        {/* Right: Invite and info */}
         <div
           style={{
             display: "flex",
@@ -797,7 +1178,226 @@ const DashboardPage: React.FC = () => {
             gap: "1rem"
           }}
         >
-          {/* Next training session */}
+          {/* Invite player */}
+          <div
+            style={{
+              borderRadius: "12px",
+              border: `1px solid ${CARD_BORDER}`,
+              background: CARD_BG,
+              boxShadow: CARD_SHADOW,
+              padding: "1rem"
+            }}
+          >
+            <h3
+              style={{
+                margin: "0 0 0.4rem",
+                fontSize: "1rem",
+                color: PRIMARY_TEXT
+              }}
+            >
+              Invite an Existing Player
+            </h3>
+            <p
+              style={{
+                margin: "0 0 0.75rem",
+                fontSize: "0.85rem",
+                color: MUTED_TEXT
+              }}
+            >
+              Use this when the player already has a Velo login.
+              We&apos;ll link their account to your parent profile and
+              (later) send an email for confirmation.
+            </p>
+
+            <form onSubmit={handleSubmitInvitePlayer}>
+              <label
+                style={{
+                  display: "block",
+                  fontSize: "0.8rem",
+                  color: MUTED_TEXT,
+                  marginBottom: "0.2rem"
+                }}
+              >
+                Player email
+              </label>
+              <input
+                type="email"
+                value={inviteEmail}
+                onChange={(e) => {
+                  setInviteEmail(e.target.value);
+                  setInviteError(null);
+                  setInviteSuccess(null);
+                }}
+                placeholder="player@example.com"
+                style={{
+                  width: "100%",
+                  padding: "0.4rem 0.6rem",
+                  borderRadius: "6px",
+                  border: `1px solid ${CARD_BORDER}`,
+                  background: "#020617",
+                  color: PRIMARY_TEXT,
+                  fontSize: "0.9rem",
+                  marginBottom: "0.4rem"
+                }}
+              />
+              {inviteError && (
+                <p
+                  style={{
+                    margin: "0 0 0.3rem",
+                    fontSize: "0.8rem",
+                    color: "#f87171"
+                  }}
+                >
+                  {inviteError}
+                </p>
+              )}
+              {inviteSuccess && (
+                <p
+                  style={{
+                    margin: "0 0 0.3rem",
+                    fontSize: "0.8rem",
+                    color: ACCENT
+                  }}
+                >
+                  {inviteSuccess}
+                </p>
+              )}
+              <button
+                type="submit"
+                disabled={inviteSaving}
+                style={{
+                  padding: "0.5rem 1rem",
+                  borderRadius: "999px",
+                  border: "none",
+                  cursor: "pointer",
+                  background: ACCENT,
+                  color: "#0f172a",
+                  fontWeight: 600,
+                  fontSize: "0.9rem"
+                }}
+              >
+                {inviteSaving ? "Sending..." : "Send invite"}
+              </button>
+            </form>
+          </div>
+
+          {/* Info / coming soon */}
+          <div
+            style={{
+              borderRadius: "12px",
+              border: `1px solid ${CARD_BORDER}`,
+              background: CARD_BG,
+              boxShadow: CARD_SHADOW,
+              padding: "1rem"
+            }}
+          >
+            <h3
+              style={{
+                margin: "0 0 0.4rem",
+                fontSize: "1rem",
+                color: PRIMARY_TEXT
+              }}
+            >
+              How Parent View Works
+            </h3>
+            <p
+              style={{
+                margin: 0,
+                fontSize: "0.85rem",
+                color: MUTED_TEXT
+              }}
+            >
+              Use the player selector above the tabs to switch which
+              player you&apos;re viewing. Program, stats, and profile
+              tabs behave as if you were logged in as that player,
+              while you stay in your parent account.
+            </p>
+          </div>
+        </div>
+      </section>
+    );
+  };
+
+  // ---- Player dashboard ----
+  const renderPlayerDashboard = () => {
+    const batGainPct =
+      playerStatsForDashboard?.gains?.batSpeed?.deltaPercent ?? null;
+
+    const formattedBatGain =
+      batGainPct != null && Number.isFinite(batGainPct)
+        ? batGainPct.toFixed(1)
+        : "0.0";
+
+    return (
+      <>
+        <section
+          style={{
+            marginTop: "0.5rem",
+            display: "flex",
+            flexDirection: "column",
+            gap: "1rem"
+          }}
+        >
+          {/* 1. Total bat speed gained (Speed Gains card for player) */}
+          <div
+            onClick={() => setActiveTab("stats")}
+            style={{
+              borderRadius: "12px",
+              border: `1px solid ${CARD_BORDER}`,
+              background: CARD_BG,
+              boxShadow: CARD_SHADOW,
+              padding: "1rem",
+              display: "flex",
+              flexDirection: "column",
+              gap: "0.4rem",
+              cursor: "pointer"
+            }}
+          >
+            <h3
+              style={{
+                margin: 0,
+                fontSize: "1rem",
+                color: PRIMARY_TEXT
+              }}
+            >
+              Total Bat Speed Gained
+            </h3>
+            {playerStatsLoading ? (
+              <div
+                style={{
+                  fontSize: "0.85rem",
+                  color: MUTED_TEXT,
+                  marginTop: "0.2rem"
+                }}
+              >
+                Calculating from assessments…
+              </div>
+            ) : (
+              <div
+                style={{
+                  fontSize: "1.4rem",
+                  fontWeight: 700,
+                  color: ACCENT,
+                  marginTop: "0.2rem"
+                }}
+              >
+                {formattedBatGain} %
+              </div>
+            )}
+            {playerStatsError && (
+              <p
+                style={{
+                  margin: 0,
+                  fontSize: "0.8rem",
+                  color: "#f87171"
+                }}
+              >
+                {playerStatsError}
+              </p>
+            )}
+          </div>
+
+          {/* 2. Next Training Session */}
           <div
             style={{
               borderRadius: "12px",
@@ -823,10 +1423,90 @@ const DashboardPage: React.FC = () => {
                 color: MUTED_TEXT
               }}
             >
-              Once your program is set up, this will jump you straight into the next
-              recommended protocol for your{" "}
-              <strong>{isCoach ? "players" : "My Program"}</strong>.
+              Jump straight into the next recommended day in{" "}
+              <strong>My Program</strong>. This pulls from your Upcoming
+              Sessions.
             </p>
+
+            <div
+              style={{
+                marginBottom: "0.75rem"
+              }}
+            >
+              {nextSessionLoading ? (
+                <div
+                  style={{
+                    fontSize: "0.85rem",
+                    color: MUTED_TEXT
+                  }}
+                >
+                  Looking up your next training day…
+                </div>
+              ) : nextSessionError ? (
+                <div
+                  style={{
+                    fontSize: "0.8rem",
+                    color: "#f87171"
+                  }}
+                >
+                  {nextSessionError}
+                </div>
+              ) : nextSessionForDashboard ? (
+                <div
+                  style={{
+                    borderRadius: "10px",
+                    border: `1px solid ${CARD_BORDER}`,
+                    padding: "0.6rem 0.75rem",
+                    background: "#020617"
+                  }}
+                >
+                  <div
+                    style={{
+                      fontSize: "0.85rem",
+                      color: PRIMARY_TEXT,
+                      fontWeight: 500
+                    }}
+                  >
+                    {nextSessionForDashboard.label}
+                  </div>
+                  {nextSessionForDashboard.subLabel && (
+                    <div
+                      style={{
+                        fontSize: "0.8rem",
+                        color: MUTED_TEXT,
+                        marginTop: "0.1rem"
+                      }}
+                    >
+                      {nextSessionForDashboard.subLabel}
+                    </div>
+                  )}
+                  {nextSessionForDashboard.scheduledFor && (
+                    <div
+                      style={{
+                        fontSize: "0.75rem",
+                        color: MUTED_TEXT,
+                        marginTop: "0.25rem"
+                      }}
+                    >
+                      Scheduled for{" "}
+                      {formatDateShort(
+                        nextSessionForDashboard.scheduledFor
+                      )}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div
+                  style={{
+                    fontSize: "0.85rem",
+                    color: MUTED_TEXT
+                  }}
+                >
+                  No upcoming sessions yet. Set up your program in{" "}
+                  <strong>My Program</strong> to see what&apos;s next.
+                </div>
+              )}
+            </div>
 
             <button
               type="button"
@@ -843,11 +1523,11 @@ const DashboardPage: React.FC = () => {
                 fontSize: "0.95rem"
               }}
             >
-              {isCoach ? "Go to My Teams" : "Go to My Program"}
+              Go to My Program
             </button>
           </div>
 
-          {/* Start a session */}
+          {/* 3. Start a Session */}
           <div
             style={{
               borderRadius: "12px",
@@ -873,8 +1553,9 @@ const DashboardPage: React.FC = () => {
                 color: MUTED_TEXT
               }}
             >
-              Choose any protocol (Overspeed, Counterweight, Power Mechanics,
-              Warm-ups, or Assessments) and run it right away.
+              Pick any training protocol (Overspeed, Counterweight,
+              Power Mechanics, Warm-ups, or Assessments) and run a
+              one-off session.
             </p>
 
             <button
@@ -892,95 +1573,247 @@ const DashboardPage: React.FC = () => {
                 background: ACCENT,
                 color: "#0f172a",
                 fontWeight: 600,
-                fontSize: "0.95rem",
-                marginBottom: "0.5rem"
+                fontSize: "0.95rem"
               }}
             >
               Choose Protocol
             </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab("library")}
+          </div>
+        </section>
+
+        {/* 4. My Teams (player) */}
+        <section
+          style={{
+            marginTop: "1rem",
+            borderRadius: "12px",
+            border: `1px solid ${CARD_BORDER}`,
+            background: CARD_BG,
+            boxShadow: CARD_SHADOW,
+            padding: "1rem"
+          }}
+        >
+          <h2
+            style={{
+              margin: "0 0 0.5rem",
+              fontSize: "1.1rem",
+              color: PRIMARY_TEXT
+            }}
+          >
+            My Teams
+          </h2>
+          <p
+            style={{
+              margin: "0 0 0.75rem",
+              fontSize: "0.9rem",
+              color: MUTED_TEXT
+            }}
+          >
+            Teams you&apos;re currently rostered on. View the team
+            leaderboard or leave a team.
+          </p>
+
+          {playerTeamsLoading ? (
+            <p style={{ fontSize: "0.85rem", color: MUTED_TEXT }}>
+              Loading your teams…
+            </p>
+          ) : playerTeams.length === 0 ? (
+            <p style={{ fontSize: "0.85rem", color: MUTED_TEXT }}>
+              You&apos;re not on any teams yet. Your coach can invite you
+              to a team from their account.
+            </p>
+          ) : (
+            <div
               style={{
-                width: "100%",
-                padding: "0.55rem 1rem",
-                borderRadius: "999px",
-                border: `1px solid ${ACCENT}`,
-                cursor: "pointer",
-                background: "transparent",
-                color: ACCENT,
-                fontWeight: 500,
-                fontSize: "0.9rem"
+                display: "flex",
+                flexDirection: "column",
+                gap: "0.6rem",
+                marginTop: "0.25rem"
               }}
             >
-              View Protocol Library
-            </button>
-          </div>
-        </div>
+              {playerTeams.map((team) => (
+                <div
+                  key={team.id}
+                  style={{
+                    borderRadius: "10px",
+                    border: `1px solid ${CARD_BORDER}`,
+                    padding: "0.6rem 0.75rem",
+                    background: "#020617",
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    gap: "0.6rem",
+                    flexWrap: "wrap"
+                  }}
+                >
+                  <div>
+                    <div
+                      style={{
+                        fontSize: "0.95rem",
+                        color: PRIMARY_TEXT,
+                        fontWeight: 500
+                      }}
+                    >
+                      {team.name}
+                    </div>
+                    <div
+                      style={{
+                        fontSize: "0.8rem",
+                        color: MUTED_TEXT,
+                        marginTop: "0.15rem"
+                      }}
+                    >
+                      {team.ageGroup && (
+                        <>
+                          Age group:{" "}
+                          <strong>{team.ageGroup}</strong> ·{" "}
+                        </>
+                      )}
+                      {team.level && (
+                        <>
+                          Level: <strong>{team.level}</strong> ·{" "}
+                        </>
+                      )}
+                      {team.organization && (
+                        <>
+                          Org: <strong>{team.organization}</strong>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "0.4rem",
+                      flexWrap: "wrap"
+                    }}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setLeaderboardTeamId(team.id);
+                        setShellView("team-leaderboard");
+                      }}
+                      style={{
+                        padding: "0.35rem 0.8rem",
+                        borderRadius: "999px",
+                        border: `1px solid ${ACCENT}`,
+                        background: "transparent",
+                        color: ACCENT,
+                        fontSize: "0.8rem",
+                        cursor: "pointer"
+                      }}
+                    >
+                      View team leaderboard
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleLeaveTeam(team.id)}
+                      style={{
+                        padding: "0.35rem 0.8rem",
+                        borderRadius: "999px",
+                        border: "1px solid #b91c1c",
+                        background: "transparent",
+                        color: "#fecaca",
+                        fontSize: "0.8rem",
+                        cursor: "pointer"
+                      }}
+                    >
+                      Leave team
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
 
-        {/* Right column: Badges + Bat speed gained */}
-        <div
+          {playerTeamsError && (
+            <p
+              style={{
+                marginTop: "0.4rem",
+                fontSize: "0.8rem",
+                color: "#f87171"
+              }}
+            >
+              {playerTeamsError}
+            </p>
+          )}
+        </section>
+      </>
+    );
+  };
+
+  // ---- Parent dashboard (player-style + manage section) ----
+  const renderParentDashboard = () => {
+    if (!selectedPlayer) {
+      return (
+        <>
+          <section
+            style={{
+              marginTop: "0.5rem",
+              borderRadius: "12px",
+              border: `1px solid ${CARD_BORDER}`,
+              background: CARD_BG,
+              boxShadow: CARD_SHADOW,
+              padding: "1rem",
+              color: PRIMARY_TEXT
+            }}
+          >
+            <h2
+              style={{
+                margin: "0 0 0.4rem",
+                fontSize: "1.1rem"
+              }}
+            >
+              Select a Player
+            </h2>
+            <p
+              style={{
+                margin: 0,
+                fontSize: "0.9rem",
+                color: MUTED_TEXT
+              }}
+            >
+              Use the player selector above to choose a player to view
+              their dashboard, program, and stats. You can also add or
+              invite players below.
+            </p>
+          </section>
+          {renderParentManageSection()}
+        </>
+      );
+    }
+
+    const childName =
+      `${selectedPlayer.first_name ?? ""} ${
+        selectedPlayer.last_name ?? ""
+      }`.trim() ||
+      selectedPlayer.email ||
+      "Selected player";
+
+    const shortChildName = childName.split(" ")[0] || "player";
+
+    const batGainPct =
+      playerStatsForDashboard?.gains?.batSpeed?.deltaPercent ?? null;
+
+    const formattedBatGain =
+      batGainPct != null && Number.isFinite(batGainPct)
+        ? batGainPct.toFixed(1)
+        : "0.0";
+
+    return (
+      <>
+        <section
           style={{
+            marginTop: "0.5rem",
             display: "flex",
             flexDirection: "column",
             gap: "1rem"
           }}
         >
-          {/* Recent badges */}
+          {/* 1. Total bat speed gained for child */}
           <div
-            style={{
-              borderRadius: "12px",
-              border: `1px solid ${CARD_BORDER}`,
-              background: CARD_BG,
-              boxShadow: CARD_SHADOW,
-              padding: "1rem"
-            }}
-          >
-            <h3
-              style={{
-                margin: "0 0 0.5rem",
-                fontSize: "1rem",
-                color: PRIMARY_TEXT
-              }}
-            >
-              Recent Badges
-            </h3>
-            <p
-              style={{
-                margin: 0,
-                fontSize: "0.85rem",
-                color: MUTED_TEXT
-              }}
-            >
-              As you complete sessions and hit milestones, your latest badges will show
-              up here.
-            </p>
-
-            <div
-              style={{
-                marginTop: "0.6rem",
-                display: "flex",
-                flexDirection: "column",
-                gap: "0.4rem",
-                fontSize: "0.8rem"
-              }}
-            >
-              <div
-                style={{
-                  padding: "0.3rem 0.6rem",
-                  borderRadius: "999px",
-                  border: "1px dashed rgba(148,163,184,0.5)",
-                  color: MUTED_TEXT,
-                  textAlign: "center"
-                }}
-              >
-                No badges earned yet — complete a protocol to start unlocking them.
-              </div>
-            </div>
-          </div>
-
-          {/* Total bat speed gained */}
-          <div
+            onClick={() => setActiveTab("stats")}
             style={{
               borderRadius: "12px",
               border: `1px solid ${CARD_BORDER}`,
@@ -989,7 +1822,8 @@ const DashboardPage: React.FC = () => {
               padding: "1rem",
               display: "flex",
               flexDirection: "column",
-              gap: "0.4rem"
+              gap: "0.4rem",
+              cursor: "pointer"
             }}
           >
             <h3
@@ -1001,30 +1835,853 @@ const DashboardPage: React.FC = () => {
             >
               Total Bat Speed Gained
             </h3>
-            <div
+            {playerStatsLoading ? (
+              <div
+                style={{
+                  fontSize: "0.85rem",
+                  color: MUTED_TEXT,
+                  marginTop: "0.2rem"
+                }}
+              >
+                Calculating from assessments…
+              </div>
+            ) : (
+              <div
+                style={{
+                  fontSize: "1.4rem",
+                  fontWeight: 700,
+                  color: ACCENT,
+                  marginTop: "0.2rem"
+                }}
+              >
+                {formattedBatGain} %
+              </div>
+            )}
+            {playerStatsError && (
+              <p
+                style={{
+                  margin: 0,
+                  fontSize: "0.8rem",
+                  color: "#f87171"
+                }}
+              >
+                {playerStatsError}
+              </p>
+            )}
+          </div>
+
+          {/* 2. Next Training Session (for child) */}
+          <div
+            style={{
+              borderRadius: "12px",
+              border: `1px solid ${CARD_BORDER}`,
+              background: CARD_BG,
+              boxShadow: CARD_SHADOW,
+              padding: "1rem"
+            }}
+          >
+            <h2
               style={{
-                fontSize: "1.4rem",
-                fontWeight: 700,
-                color: ACCENT,
-                marginTop: "0.2rem"
+                margin: "0 0 0.5rem",
+                fontSize: "1.1rem",
+                color: PRIMARY_TEXT
               }}
             >
-              +0.0 mph
-            </div>
+              Next Training Session
+            </h2>
             <p
               style={{
-                margin: 0,
-                fontSize: "0.85rem",
+                margin: "0 0 0.75rem",
+                fontSize: "0.9rem",
                 color: MUTED_TEXT
               }}
             >
-              We’ll calculate this based on your baseline assessment and your most
-              recent best bat speed, across all protocols.
+              This pulls the next recommended training day from{" "}
+              <strong>{childName}</strong>&apos;s{" "}
+              <strong>Velo program</strong>.
             </p>
+
+            <div
+              style={{
+                marginBottom: "0.75rem"
+              }}
+            >
+              {nextSessionLoading ? (
+                <div
+                  style={{
+                    fontSize: "0.85rem",
+                    color: MUTED_TEXT
+                  }}
+                >
+                  Looking up the next training day…
+                </div>
+              ) : nextSessionError ? (
+                <div
+                  style={{
+                    fontSize: "0.8rem",
+                    color: "#f87171"
+                  }}
+                >
+                  {nextSessionError}
+                </div>
+              ) : nextSessionForDashboard ? (
+                <div
+                  style={{
+                    borderRadius: "10px",
+                    border: `1px solid ${CARD_BORDER}`,
+                    padding: "0.6rem 0.75rem",
+                    background: "#020617"
+                  }}
+                >
+                  <div
+                    style={{
+                      fontSize: "0.85rem",
+                      color: PRIMARY_TEXT,
+                      fontWeight: 500
+                    }}
+                  >
+                    {nextSessionForDashboard.label}
+                  </div>
+                  {nextSessionForDashboard.subLabel && (
+                    <div
+                      style={{
+                        fontSize: "0.8rem",
+                        color: MUTED_TEXT,
+                        marginTop: "0.1rem"
+                      }}
+                    >
+                      {nextSessionForDashboard.subLabel}
+                    </div>
+                  )}
+                  {nextSessionForDashboard.scheduledFor && (
+                    <div
+                      style={{
+                        fontSize: "0.75rem",
+                        color: MUTED_TEXT,
+                        marginTop: "0.25rem"
+                      }}
+                    >
+                      Scheduled for{" "}
+                      {formatDateShort(
+                        nextSessionForDashboard.scheduledFor
+                      )}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div
+                  style={{
+                    fontSize: "0.85rem",
+                    color: MUTED_TEXT
+                  }}
+                >
+                  No upcoming sessions yet. Set up{" "}
+                  {shortChildName}&apos;s program in{" "}
+                  <strong>My Program</strong> to see what&apos;s next.
+                </div>
+              )}
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setActiveTab("program")}
+              style={{
+                width: "100%",
+                padding: "0.7rem 1rem",
+                borderRadius: "999px",
+                border: "none",
+                cursor: "pointer",
+                background: ACCENT,
+                color: "#0f172a",
+                fontWeight: 600,
+                fontSize: "0.95rem"
+              }}
+            >
+              Go to {shortChildName}&apos;s program
+            </button>
           </div>
+
+          {/* 3. Start a Session for child */}
+          <div
+            style={{
+              borderRadius: "12px",
+              border: `1px solid ${CARD_BORDER}`,
+              background: CARD_BG,
+              boxShadow: CARD_SHADOW,
+              padding: "1rem"
+            }}
+          >
+            <h2
+              style={{
+                margin: "0 0 0.5rem",
+                fontSize: "1.1rem",
+                color: PRIMARY_TEXT
+              }}
+            >
+              Start a Session
+            </h2>
+            <p
+              style={{
+                margin: "0 0 0.75rem",
+                fontSize: "0.9rem",
+                color: MUTED_TEXT
+              }}
+            >
+              Start a session for{" "}
+              <strong>{childName}</strong> using any protocol (Overspeed,
+              Counterweight, Power Mechanics, Warm-ups, or
+              Assessments).
+            </p>
+
+            <button
+              type="button"
+              onClick={() => {
+                setProgramProtocolTitle(null);
+                setShellView("start-session");
+              }}
+              style={{
+                width: "100%",
+                padding: "0.7rem 1rem",
+                borderRadius: "999px",
+                border: "none",
+                cursor: "pointer",
+                background: ACCENT,
+                color: "#0f172a",
+                fontWeight: 600,
+                fontSize: "0.95rem"
+              }}
+            >
+              Choose Protocol for {shortChildName}
+            </button>
+          </div>
+        </section>
+
+        {/* {childName}'s Teams */}
+        <section
+          style={{
+            marginTop: "1rem",
+            borderRadius: "12px",
+            border: `1px solid ${CARD_BORDER}`,
+            background: CARD_BG,
+            boxShadow: CARD_SHADOW,
+            padding: "1rem"
+          }}
+        >
+          <h2
+            style={{
+              margin: "0 0 0.5rem",
+              fontSize: "1.1rem",
+              color: PRIMARY_TEXT
+            }}
+          >
+            {childName}&apos;s Teams
+          </h2>
+          <p
+            style={{
+              margin: "0 0 0.75rem",
+              fontSize: "0.9rem",
+              color: MUTED_TEXT
+            }}
+          >
+            Teams where {shortChildName} is currently rostered. You can
+            view the team leaderboard from here.
+          </p>
+
+          {parentChildTeamsLoading ? (
+            <p style={{ fontSize: "0.85rem", color: MUTED_TEXT }}>
+              Loading teams…
+            </p>
+          ) : parentChildTeams.length === 0 ? (
+            <p style={{ fontSize: "0.85rem", color: MUTED_TEXT }}>
+              {shortChildName} is not on any teams yet.
+            </p>
+          ) : (
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: "0.6rem",
+                marginTop: "0.25rem"
+              }}
+            >
+              {parentChildTeams.map((team) => (
+                <div
+                  key={team.id}
+                  style={{
+                    borderRadius: "10px",
+                    border: `1px solid ${CARD_BORDER}`,
+                    padding: "0.6rem 0.75rem",
+                    background: "#020617",
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    gap: "0.6rem",
+                    flexWrap: "wrap"
+                  }}
+                >
+                  <div>
+                    <div
+                      style={{
+                        fontSize: "0.95rem",
+                        color: PRIMARY_TEXT,
+                        fontWeight: 500
+                      }}
+                    >
+                      {team.name}
+                    </div>
+                    <div
+                      style={{
+                        fontSize: "0.8rem",
+                        color: MUTED_TEXT,
+                        marginTop: "0.15rem"
+                      }}
+                    >
+                      {team.ageGroup && (
+                        <>
+                          Age group:{" "}
+                          <strong>{team.ageGroup}</strong> ·{" "}
+                        </>
+                      )}
+                      {team.level && (
+                        <>
+                          Level: <strong>{team.level}</strong> ·{" "}
+                        </>
+                      )}
+                      {team.organization && (
+                        <>
+                          Org: <strong>{team.organization}</strong>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "0.4rem",
+                      flexWrap: "wrap"
+                    }}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setLeaderboardTeamId(team.id);
+                        setShellView("team-leaderboard");
+                      }}
+                      style={{
+                        padding: "0.35rem 0.8rem",
+                        borderRadius: "999px",
+                        border: `1px solid ${ACCENT}`,
+                        background: "transparent",
+                        color: ACCENT,
+                        fontSize: "0.8rem",
+                        cursor: "pointer"
+                      }}
+                    >
+                      View team leaderboard
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {parentChildTeamsError && (
+            <p
+              style={{
+                marginTop: "0.4rem",
+                fontSize: "0.8rem",
+                color: "#f87171"
+              }}
+            >
+              {parentChildTeamsError}
+            </p>
+          )}
+        </section>
+
+        {renderParentManageSection()}
+      </>
+    );
+  };
+
+  // ---- Coach dashboard ----
+  const renderCoachDashboard = () => {
+    const metricsByTeamId: Record<string, CoachTeamMetrics> = {};
+    for (const m of coachTeamMetrics) {
+      metricsByTeamId[m.teamId] = m;
+    }
+
+    const totalSessionsAllTeams = coachTeamMetrics.reduce(
+      (sum, m) => sum + getSessionsForRange(m, coachSessionsRange),
+      0
+    );
+
+    const avgGainAllTeamsRaw =
+      coachTeamMetrics.length > 0
+        ? coachTeamMetrics.reduce((sum, m) => {
+            if (
+              typeof m.avgBatSpeedGainPct === "number" &&
+              Number.isFinite(m.avgBatSpeedGainPct)
+            ) {
+              return sum + m.avgBatSpeedGainPct;
+            }
+            return sum;
+          }, 0) / coachTeamMetrics.length
+        : null;
+
+    const formattedAvgGainAllTeams =
+      avgGainAllTeamsRaw != null && Number.isFinite(avgGainAllTeamsRaw)
+        ? avgGainAllTeamsRaw.toFixed(1)
+        : "0.0";
+
+    const currentRangeLabel = SESSION_RANGE_LABELS[coachSessionsRange];
+
+    return (
+      <section
+        style={{
+          marginTop: "0.5rem",
+          display: "flex",
+          flexDirection: "column",
+          gap: "1rem"
+        }}
+      >
+        {/* 1. Speed Gains */}
+        <div
+          style={{
+            borderRadius: "12px",
+            border: `1px solid ${CARD_BORDER}`,
+            background: CARD_BG,
+            boxShadow: CARD_SHADOW,
+            padding: "1rem",
+            display: "flex",
+            flexDirection: "column",
+            gap: "0.6rem"
+          }}
+        >
+          <h3
+            style={{
+              margin: 0,
+              fontSize: "1rem",
+              color: PRIMARY_TEXT
+            }}
+          >
+            Speed Gains
+          </h3>
+          <div
+            style={{
+              fontSize: "0.85rem",
+              color: MUTED_TEXT
+            }}
+          >
+            Average percentage gain in game bat speed for players on your
+            teams who have both baseline and follow-up assessments.
+          </div>
+
+          <div
+            style={{
+              fontSize: "1.4rem",
+              fontWeight: 700,
+              color: ACCENT,
+              marginTop: "0.15rem"
+            }}
+          >
+            {formattedAvgGainAllTeams} %
+          </div>
+          <div
+            style={{
+              fontSize: "0.8rem",
+              color: MUTED_TEXT
+            }}
+          >
+            Overall average bat speed gain across all of your teams.
+          </div>
+
+          {coachTeamMetrics.length > 0 && (
+            <div
+              style={{
+                marginTop: "0.5rem",
+                display: "flex",
+                flexDirection: "column",
+                gap: "0.4rem",
+                fontSize: "0.8rem"
+              }}
+            >
+              {coachTeamMetrics.map((m) => {
+                const team = coachTeams.find((t) => t.id === m.teamId);
+                if (!team) return null;
+                const gain = m.avgBatSpeedGainPct;
+                const formatted =
+                  gain != null && Number.isFinite(gain)
+                    ? `${gain.toFixed(1)} %`
+                    : "No data yet";
+                const color =
+                  gain != null && Number.isFinite(gain)
+                    ? gain >= 0
+                      ? ACCENT
+                      : "#f97373"
+                    : MUTED_TEXT;
+
+                return (
+                  <div
+                    key={m.teamId}
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      borderRadius: "8px",
+                      border: `1px solid ${CARD_BORDER}`,
+                      padding: "0.4rem 0.6rem",
+                      background: "#020617"
+                    }}
+                  >
+                    <div
+                      style={{
+                        fontSize: "0.85rem",
+                        color: PRIMARY_TEXT
+                      }}
+                    >
+                      {team.name}
+                    </div>
+                    <div
+                      style={{
+                        fontSize: "0.8rem",
+                        color
+                      }}
+                    >
+                      {formatted}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {coachMetricsLoading && (
+            <p
+              style={{
+                fontSize: "0.8rem",
+                color: MUTED_TEXT
+              }}
+            >
+              Calculating gains…
+            </p>
+          )}
+        </div>
+
+        {/* 2. My Teams */}
+        <div
+          style={{
+            borderRadius: "12px",
+            border: `1px solid ${CARD_BORDER}`,
+            background: CARD_BG,
+            boxShadow: CARD_SHADOW,
+            padding: "1rem"
+          }}
+        >
+          <h2
+            style={{
+              margin: "0 0 0.5rem",
+              fontSize: "1.1rem",
+              color: PRIMARY_TEXT
+            }}
+          >
+            My Teams
+          </h2>
+          <p
+            style={{
+              margin: "0 0 0.75rem",
+              fontSize: "0.9rem",
+              color: MUTED_TEXT
+            }}
+          >
+            Quick overview of the teams you coach. Create and manage
+            rosters from the <strong>My Teams</strong> tab.
+          </p>
+
+          {coachTeamsLoading ? (
+            <p style={{ fontSize: "0.85rem", color: MUTED_TEXT }}>
+              Loading teams…
+            </p>
+          ) : coachTeams.length === 0 ? (
+            <p style={{ fontSize: "0.85rem", color: MUTED_TEXT }}>
+              You don&apos;t have any teams yet. Create your first team
+              from the <strong>My Teams</strong> tab.
+            </p>
+          ) : (
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: "0.6rem"
+              }}
+            >
+              {coachTeams.map((team) => {
+                const metrics = metricsByTeamId[team.id];
+                return (
+                  <div
+                    key={team.id}
+                    style={{
+                      borderRadius: "10px",
+                      border: `1px solid ${CARD_BORDER}`,
+                      padding: "0.6rem 0.75rem",
+                      background: "#020617",
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      gap: "0.6rem",
+                      flexWrap: "wrap"
+                    }}
+                  >
+                    <div>
+                      <div
+                        style={{
+                          fontSize: "0.95rem",
+                          color: PRIMARY_TEXT,
+                          fontWeight: 500
+                        }}
+                      >
+                        {team.name}
+                      </div>
+                      <div
+                        style={{
+                          fontSize: "0.8rem",
+                          color: MUTED_TEXT,
+                          marginTop: "0.15rem"
+                        }}
+                      >
+                        {team.ageGroup && (
+                          <>
+                            Age group:{" "}
+                            <strong>{team.ageGroup}</strong> ·{" "}
+                          </>
+                        )}
+                        {team.level && (
+                          <>
+                            Level: <strong>{team.level}</strong> ·{" "}
+                          </>
+                        )}
+                        {team.organization && (
+                          <>
+                            Org:{" "}
+                            <strong>{team.organization}</strong>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                    {metrics && (
+                      <div
+                        style={{
+                          fontSize: "0.8rem",
+                          color: MUTED_TEXT,
+                          textAlign: "right"
+                        }}
+                      >
+                        <div>
+                          Players:{" "}
+                          <strong>{metrics.playerCount}</strong>
+                        </div>
+                        <div>
+                          Sessions (lifetime):{" "}
+                          <strong>
+                            {getSessionsForRange(metrics, "lifetime")}
+                          </strong>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {coachTeamsError && (
+            <p
+              style={{
+                marginTop: "0.4rem",
+                fontSize: "0.8rem",
+                color: "#f87171"
+              }}
+            >
+              {coachTeamsError}
+            </p>
+          )}
+        </div>
+
+        {/* 3. Team Sessions with range filter */}
+        <div
+          style={{
+            borderRadius: "12px",
+            border: `1px solid ${CARD_BORDER}`,
+            background: CARD_BG,
+            boxShadow: CARD_SHADOW,
+            padding: "1rem"
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              gap: "0.75rem",
+              flexWrap: "wrap",
+              marginBottom: "0.5rem"
+            }}
+          >
+            <div>
+              <h3
+                style={{
+                  margin: 0,
+                  fontSize: "1rem",
+                  color: PRIMARY_TEXT
+                }}
+              >
+                Team Sessions
+              </h3>
+              <p
+                style={{
+                  margin: "0.25rem 0 0",
+                  fontSize: "0.85rem",
+                  color: MUTED_TEXT
+                }}
+              >
+                Completed sessions by team. Use the filter to view Today,
+                Last 7 days, Last 30 days, or Lifetime.
+              </p>
+            </div>
+            <div
+              style={{
+                display: "flex",
+                gap: "0.25rem",
+                padding: "0.15rem",
+                borderRadius: "999px",
+                border: `1px solid ${CARD_BORDER}`,
+                background: "#020617"
+              }}
+            >
+              {(Object.keys(SESSION_RANGE_LABELS) as SessionRangeKey[]).map(
+                (rangeKey) => {
+                  const label = SESSION_RANGE_LABELS[rangeKey];
+                  const isActive = coachSessionsRange === rangeKey;
+                  return (
+                    <button
+                      key={rangeKey}
+                      type="button"
+                      onClick={() => setCoachSessionsRange(rangeKey)}
+                      style={{
+                        border: "none",
+                        borderRadius: "999px",
+                        padding: "0.25rem 0.6rem",
+                        fontSize: "0.75rem",
+                        cursor: "pointer",
+                        background: isActive ? ACCENT : "transparent",
+                        color: isActive ? "#0f172a" : PRIMARY_TEXT,
+                        fontWeight: isActive ? 600 : 400,
+                        whiteSpace: "nowrap"
+                      }}
+                    >
+                      {label}
+                    </button>
+                  );
+                }
+              )}
+            </div>
+          </div>
+
+          {coachMetricsLoading && (
+            <p style={{ fontSize: "0.85rem", color: MUTED_TEXT }}>
+              Calculating sessions…
+            </p>
+          )}
+
+          {coachTeamMetrics.length === 0 && !coachMetricsLoading ? (
+            <p style={{ fontSize: "0.85rem", color: MUTED_TEXT }}>
+              No team session data yet.
+            </p>
+          ) : coachTeamMetrics.length > 0 ? (
+            <>
+              <div
+                style={{
+                  fontSize: "0.9rem",
+                  color: PRIMARY_TEXT,
+                  marginBottom: "0.4rem"
+                }}
+              >
+                {currentRangeLabel} across all teams:{" "}
+                <strong>{totalSessionsAllTeams}</strong> completed
+                sessions.
+              </div>
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "0.35rem",
+                  fontSize: "0.8rem"
+                }}
+              >
+                {coachTeamMetrics.map((m) => {
+                  const team = coachTeams.find((t) => t.id === m.teamId);
+                  if (!team) return null;
+                  const count = getSessionsForRange(
+                    m,
+                    coachSessionsRange
+                  );
+                  return (
+                    <div
+                      key={m.teamId}
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        borderRadius: "8px",
+                        border: `1px solid ${CARD_BORDER}`,
+                        padding: "0.4rem 0.6rem",
+                        background: "#020617"
+                      }}
+                    >
+                      <div
+                        style={{
+                          fontSize: "0.85rem",
+                          color: PRIMARY_TEXT
+                        }}
+                      >
+                        {team.name}
+                      </div>
+                      <div
+                        style={{
+                          fontSize: "0.8rem",
+                          color: MUTED_TEXT
+                        }}
+                      >
+                        {count} sessions
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          ) : null}
+
+          {coachMetricsError && (
+            <p
+              style={{
+                marginTop: "0.4rem",
+                fontSize: "0.8rem",
+                color: "#f87171"
+              }}
+            >
+              {coachMetricsError}
+            </p>
+          )}
         </div>
       </section>
     );
+  };
+
+  // ---- Dashboard tab content switch ----
+  const renderDashboardTab = () => {
+    if (isCoach) return renderCoachDashboard();
+    if (isParent) return renderParentDashboard();
+    return renderPlayerDashboard();
   };
 
   const renderProgramTab = () => {
@@ -1075,7 +2732,6 @@ const DashboardPage: React.FC = () => {
         );
       }
 
-      // NOTE: you'll want MyProgramPage to accept an optional playerIdOverride prop
       return (
         <section
           style={{
@@ -1088,14 +2744,14 @@ const DashboardPage: React.FC = () => {
               setProgramProtocolTitle(protocolTitle);
               setShellView("start-session");
             }}
-            // @ts-expect-error - add this prop to MyProgramPage's props type
+            // Parent view: show the program for the selected child.
             playerIdOverride={selectedPlayer.id}
           />
         </section>
       );
     }
 
-    // Player view (unchanged)
+    // Player view
     return (
       <section
         style={{
@@ -1122,7 +2778,10 @@ const DashboardPage: React.FC = () => {
             marginTop: "0.5rem"
           }}
         >
-          <TeamStatsPage onBack={() => setActiveTab("dashboard")} />
+          <TeamStatsPage
+            onBack={() => setActiveTab("dashboard")}
+            mode="coach"
+          />
         </section>
       );
     }
@@ -1156,7 +2815,8 @@ const DashboardPage: React.FC = () => {
                 color: MUTED_TEXT
               }}
             >
-              Select or add a player above to view their speed and training data.
+              Select or add a player above to view their speed and
+              training data.
             </p>
           </section>
         );
@@ -1170,14 +2830,14 @@ const DashboardPage: React.FC = () => {
         >
           <StatsPage
             onBack={() => setActiveTab("dashboard")}
-            // Coach & parent views both rely on this override prop
+            // Parent view relies on this override
             playerIdOverride={selectedPlayer.id}
           />
         </section>
       );
     }
 
-    // Player: keep existing My Stats view
+    // Player: My Stats
     return (
       <section
         style={{
@@ -1195,110 +2855,65 @@ const DashboardPage: React.FC = () => {
     }
 
     if (isParent) {
-      return (
-        <section
-          style={{
-            marginTop: "0.5rem",
-            borderRadius: "12px",
-            border: `1px solid ${CARD_BORDER}`,
-            background: CARD_BG,
-            boxShadow: CARD_SHADOW,
-            padding: "1rem",
-            color: PRIMARY_TEXT
-          }}
-        >
-          <h2
+      if (!selectedPlayer) {
+        return (
+          <section
             style={{
-              margin: "0 0 0.4rem",
-              fontSize: "1.1rem"
+              marginTop: "0.5rem",
+              borderRadius: "12px",
+              border: `1px solid ${CARD_BORDER}`,
+              background: CARD_BG,
+              boxShadow: CARD_SHADOW,
+              padding: "1rem",
+              color: PRIMARY_TEXT
             }}
           >
-            Parent Profile
-          </h2>
-          <p
-            style={{
-              margin: "0 0 0.7rem",
-              fontSize: "0.9rem",
-              color: MUTED_TEXT
-            }}
-          >
-            You&apos;re logged in as a{" "}
-            <strong>parent</strong>. Use the player selector above to view
-            programs and stats as each player. We&apos;ll add more detailed parent
-            profile settings here later.
-          </p>
-
-          {selectedPlayer ? (
-            <div
+            <h2
               style={{
-                borderRadius: "10px",
-                border: `1px solid ${CARD_BORDER}`,
-                padding: "0.8rem",
-                background: "#020617"
+                margin: "0 0 0.4rem",
+                fontSize: "1.1rem"
               }}
             >
-              <div
-                style={{
-                  fontSize: "0.8rem",
-                  textTransform: "uppercase",
-                  letterSpacing: "0.08em",
-                  color: MUTED_TEXT,
-                  marginBottom: "0.3rem"
-                }}
-              >
-                Currently selected player
-              </div>
-              <div
-                style={{
-                  fontSize: "0.95rem",
-                  color: PRIMARY_TEXT,
-                  fontWeight: 500
-                }}
-              >
-                {(selectedPlayer.first_name ?? "") +
-                  " " +
-                  (selectedPlayer.last_name ?? "")}
-              </div>
-              <div
-                style={{
-                  fontSize: "0.85rem",
-                  color: MUTED_TEXT,
-                  marginTop: "0.15rem"
-                }}
-              >
-                {selectedPlayer.email || "No email on file"}
-              </div>
-              <div
-                style={{
-                  fontSize: "0.8rem",
-                  color: MUTED_TEXT,
-                  marginTop: "0.35rem"
-                }}
-              >
-                This player&apos;s detailed profile can be edited when logged in
-                directly as the player. For now you can manage their program and stats
-                from your account.
-              </div>
-            </div>
-          ) : (
+              Player Profile
+            </h2>
             <p
               style={{
                 margin: 0,
-                fontSize: "0.85rem",
+                fontSize: "0.9rem",
                 color: MUTED_TEXT
               }}
             >
-              No player selected. Choose a player from the selector above or add one
-              from the Dashboard.
+              Select or add a player above to view and edit their player
+              profile from your parent account.
             </p>
-          )}
+          </section>
+        );
+      }
+
+      // Parent with a selected player: edit the kid's profile
+      return (
+        <section
+          style={{
+            marginTop: "0.5rem"
+          }}
+        >
+          <ProfilePage playerIdOverride={selectedPlayer.id} />
         </section>
       );
     }
 
-    // Player profile stays as-is
-    return <ProfilePage />;
+    // Player profile (logged-in player editing their own profile)
+    return (
+      <section
+        style={{
+          marginTop: "0.5rem"
+        }}
+      >
+        <ProfilePage />
+      </section>
+    );
   };
+
 
   const renderTabContent = () => {
     switch (activeTab) {
@@ -1371,14 +2986,30 @@ const DashboardPage: React.FC = () => {
               color: MUTED_TEXT
             }}
           >
-            Ready to train? Use the tabs below to move between your dashboard,
-            protocols,{" "}
+            Ready to train? Use the tabs below to move between your
+            dashboard, protocols,{" "}
             {isCoach
               ? "teams, stats,"
               : isParent
               ? "players, stats,"
               : "program, stats,"}{" "}
             and profile.
+            {isParent && selectedPlayer && (
+              <>
+                {" "}
+                You&apos;re currently viewing the app as{" "}
+                <strong
+                  style={{
+                    color: DANGER,
+                    fontWeight: 600
+                  }}
+                >
+                  {selectedPlayer.first_name ?? ""}{" "}
+                  {selectedPlayer.last_name ?? ""}
+                </strong>
+                .
+              </>
+            )}
           </p>
         </div>
         <div
@@ -1480,7 +3111,7 @@ const DashboardPage: React.FC = () => {
               color: MUTED_TEXT
             }}
           >
-            Viewing data for:
+            Viewing as:
           </span>
           {parentPlayersLoading ? (
             <span
@@ -1498,54 +3129,38 @@ const DashboardPage: React.FC = () => {
                 color: MUTED_TEXT
               }}
             >
-              No players linked yet. Use the Dashboard to add or invite a player.
+              No players linked yet. Use the Dashboard to add or invite a
+              player.
             </span>
           ) : (
-            <>
-              <select
-                value={selectedPlayerId ?? ""}
-                onChange={(e) =>
-                  setSelectedPlayerId(e.target.value || null)
-                }
-                style={{
-                  minWidth: "180px",
-                  padding: "0.35rem 0.6rem",
-                  borderRadius: "999px",
-                  border: `1px solid ${CARD_BORDER}`,
-                  background: "#020617",
-                  color: PRIMARY_TEXT,
-                  fontSize: "0.85rem"
-                }}
-              >
-                <option value="">Select a player...</option>
-                {parentPlayers.map((p) => {
-                  const name = `${p.first_name ?? ""} ${
-                    p.last_name ?? ""
-                  }`.trim();
-                  return (
-                    <option key={p.id} value={p.id}>
-                      {name || "(Unnamed player)"}{" "}
-                      {p.email ? `(${p.email})` : ""}
-                    </option>
-                  );
-                })}
-              </select>
-              {selectedPlayer && (
-                <span
-                  style={{
-                    fontSize: "0.8rem",
-                    color: MUTED_TEXT
-                  }}
-                >
-                  Program, stats, and relevant pages are now showing{" "}
-                  <strong>
-                    {selectedPlayer.first_name ?? ""}{" "}
-                    {selectedPlayer.last_name ?? ""}
-                  </strong>
-                  &apos;s data.
-                </span>
-              )}
-            </>
+            <select
+              value={selectedPlayerId ?? ""}
+              onChange={(e) =>
+                setSelectedPlayerId(e.target.value || null)
+              }
+              style={{
+                minWidth: "180px",
+                padding: "0.35rem 0.6rem",
+                borderRadius: "999px",
+                border: `1px solid ${CARD_BORDER}`,
+                background: "#020617",
+                color: PRIMARY_TEXT,
+                fontSize: "0.85rem"
+              }}
+            >
+              <option value="">Select a player...</option>
+              {parentPlayers.map((p) => {
+                const name = `${p.first_name ?? ""} ${
+                  p.last_name ?? ""
+                }`.trim();
+                return (
+                  <option key={p.id} value={p.id}>
+                    {name || "(Unnamed player)"}{" "}
+                    {p.email ? `(${p.email})` : ""}
+                  </option>
+                );
+              })}
+            </select>
           )}
         </section>
       )}

@@ -589,6 +589,77 @@ router.delete(
 );
 
 /**
+ * DELETE /api/teams/:teamId/members
+ *
+ * Body:
+ *  - profileId (the member leaving the team)
+ *
+ * Allows a non-owner member to remove their own membership from a team.
+ * We intentionally do NOT touch invitations.
+ */
+router.delete(
+  "/teams/:teamId/members",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { teamId } = req.params;
+      const { profileId } = req.body as { profileId?: string };
+
+      if (!teamId) {
+        return res.status(400).json({ error: "teamId is required" });
+      }
+      if (!profileId) {
+        return res.status(400).json({ error: "profileId is required" });
+      }
+
+      // Look up membership for this profile on this team
+      const { data: memberRows, error: memberError } = await supabaseAdmin
+        .from("team_members")
+        .select("id, is_owner")
+        .eq("team_id", teamId)
+        .eq("profile_id", profileId)
+        .limit(1);
+
+      if (memberError) {
+        throw memberError;
+      }
+
+      const member = (memberRows ?? [])[0] as
+        | { id: string; is_owner: boolean }
+        | undefined;
+
+      if (!member) {
+        return res
+          .status(404)
+          .json({ error: "You are not a member of this team" });
+      }
+
+      if (member.is_owner) {
+        // Owner can't just "leave" – they should delete the team or transfer ownership
+        return res.status(400).json({
+          error:
+            "Team owners cannot leave their own team. Use Delete Team instead."
+        });
+      }
+
+      const { error: deleteError } = await supabaseAdmin
+        .from("team_members")
+        .delete()
+        .eq("id", member.id);
+
+      if (deleteError) {
+        throw deleteError;
+      }
+
+      // Membership removed
+      return res.status(204).send();
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+
+/**
  * POST /api/teams/:teamId/invitations
  *
  * Body:

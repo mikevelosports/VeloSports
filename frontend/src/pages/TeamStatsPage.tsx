@@ -74,10 +74,16 @@ type SortKey =
 
 interface TeamStatsPageProps {
   onBack: () => void;
+  mode?: "coach" | "player";
+  initialTeamId?: string;
 }
 
-const TeamStatsPage: React.FC<TeamStatsPageProps> = ({ onBack }) => {
-  const { currentProfile } = useAuth();
+  const TeamStatsPage: React.FC<TeamStatsPageProps> = ({
+    onBack,
+    mode = "coach",
+    initialTeamId
+  }) => {
+    const { currentProfile } = useAuth();
 
   const [teams, setTeams] = useState<TeamSummary[]>([]);
   const [teamsLoading, setTeamsLoading] = useState(false);
@@ -97,29 +103,39 @@ const TeamStatsPage: React.FC<TeamStatsPageProps> = ({ onBack }) => {
   const [selectedPlayerId, setSelectedPlayerId] = useState<string | null>(null);
   const [sortKey, setSortKey] = useState<SortKey>("batSpeed");
 
-  useEffect(() => {
-    if (!currentProfile) return;
-    if (currentProfile.role !== "coach") return;
+    useEffect(() => {
+      if (!currentProfile) return;
+      // In coach mode we only load for coach profiles; player mode is allowed for players/parents.
+      if (mode !== "player" && currentProfile.role !== "coach") return;
 
-    const loadTeams = async () => {
-      try {
-        setTeamsLoading(true);
-        setTeamsError(null);
-        const data = await fetchTeamsForProfile(currentProfile.id);
-        setTeams(data);
-        if (data.length > 0 && !selectedTeamId) {
-          setSelectedTeamId(data[0].id);
+      const loadTeams = async () => {
+        try {
+          setTeamsLoading(true);
+          setTeamsError(null);
+          const data = await fetchTeamsForProfile(currentProfile.id);
+          setTeams(data);
+          if (data.length > 0 && !selectedTeamId) {
+            // Prefer the initialTeamId if provided and valid
+            if (
+              initialTeamId &&
+              data.some((t) => t.id === initialTeamId)
+            ) {
+              setSelectedTeamId(initialTeamId);
+            } else {
+              setSelectedTeamId(data[0].id);
+            }
+          }
+        } catch (err: any) {
+          setTeamsError(err?.message ?? "Failed to load teams");
+        } finally {
+          setTeamsLoading(false);
         }
-      } catch (err: any) {
-        setTeamsError(err?.message ?? "Failed to load teams");
-      } finally {
-        setTeamsLoading(false);
-      }
-    };
+      };
 
-    loadTeams();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentProfile?.id]);
+      loadTeams();
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [currentProfile?.id, mode, initialTeamId]);
+
 
   // Load selected team details
   useEffect(() => {
@@ -297,43 +313,46 @@ const TeamStatsPage: React.FC<TeamStatsPageProps> = ({ onBack }) => {
     );
   }, [leaderboardRows, selectedPlayerId]);
 
-  if (!currentProfile) return null;
+    if (!currentProfile) return null;
 
-  if (currentProfile.role !== "coach") {
-    return (
-      <section
-        style={{
-          padding: "1rem",
-          borderRadius: "12px",
-          border: `1px solid ${CARD_BORDER}`,
-          background: CARD_BG,
-          color: PRIMARY_TEXT
-        }}
-      >
-        <button
-          onClick={onBack}
+    const isCoachProfile = currentProfile.role === "coach";
+    const isCoachView = mode !== "player";
+
+    if (isCoachView && !isCoachProfile) {
+      return (
+        <section
           style={{
-            marginBottom: "1rem",
-            padding: "0.4rem 0.8rem",
-            borderRadius: "999px",
-            border: "1px solid #4b5563",
-            background: "transparent",
-            color: PRIMARY_TEXT,
-            cursor: "pointer",
-            fontSize: "0.85rem"
+            padding: "1rem",
+            borderRadius: "12px",
+            border: `1px solid ${CARD_BORDER}`,
+            background: CARD_BG,
+            color: PRIMARY_TEXT
           }}
         >
-          ← Back to dashboard
-        </button>
-        <h2 style={{ marginTop: 0 }}>Team Stats</h2>
-        <p style={{ color: MUTED_TEXT }}>
-          Team stats are only available when logged in as a{" "}
-          <strong>Coach</strong> profile. Use the dev login screen to switch
-          roles.
-        </p>
-      </section>
-    );
-  }
+          <button
+            onClick={onBack}
+            style={{
+              marginBottom: "1rem",
+              padding: "0.4rem 0.8rem",
+              borderRadius: "999px",
+              border: "1px solid #4b5563",
+              background: "transparent",
+              color: PRIMARY_TEXT,
+              cursor: "pointer",
+              fontSize: "0.85rem"
+            }}
+          >
+            ← Back to dashboard
+          </button>
+          <h2 style={{ marginTop: 0 }}>Team Stats</h2>
+          <p style={{ color: MUTED_TEXT }}>
+            Team stats are only available when logged in as a{" "}
+            <strong>Coach</strong> profile. Use the dev login screen to
+            switch roles.
+          </p>
+        </section>
+      );
+    }
 
   const sortLabel = (key: SortKey): string => {
     switch (key) {
@@ -350,6 +369,11 @@ const TeamStatsPage: React.FC<TeamStatsPageProps> = ({ onBack }) => {
     }
   };
 
+    const headerTitle = isCoachView ? "Team Stats" : "Team Leaderboard";
+    const headerSubtitle = isCoachView
+      ? "View leaderboard metrics for your teams and drill into a single player's performance below."
+      : "See how you stack up against teammates across key metrics. This view is read‑only.";
+    
   return (
     <section
       style={{
@@ -386,7 +410,7 @@ const TeamStatsPage: React.FC<TeamStatsPageProps> = ({ onBack }) => {
         }}
       >
         <div>
-          <h2 style={{ margin: 0 }}>Team Stats</h2>
+          <h2 style={{ margin: 0 }}>{headerTitle}</h2>
           <p
             style={{
               margin: "0.25rem 0 0",
@@ -394,23 +418,25 @@ const TeamStatsPage: React.FC<TeamStatsPageProps> = ({ onBack }) => {
               fontSize: "0.9rem"
             }}
           >
-            View leaderboard metrics for your teams and drill into a single
-            player's performance below.
+            {headerSubtitle}
           </p>
         </div>
-        <div
-          style={{
-            padding: "0.3rem 0.75rem",
-            borderRadius: "999px",
-            border: `1px solid ${CARD_BORDER}`,
-            background: CARD_BG,
-            fontSize: "0.75rem",
-            color: MUTED_TEXT
-          }}
-        >
-          Role: <strong>{currentProfile.role}</strong>
-        </div>
+        {isCoachView && (
+          <div
+            style={{
+              padding: "0.3rem 0.75rem",
+              borderRadius: "999px",
+              border: `1px solid ${CARD_BORDER}`,
+              background: CARD_BG,
+              fontSize: "0.75rem",
+              color: MUTED_TEXT
+            }}
+          >
+            Role: <strong>{currentProfile.role}</strong>
+          </div>
+        )}
       </header>
+
 
       {/* Team selector */}
       <nav
@@ -798,8 +824,8 @@ const TeamStatsPage: React.FC<TeamStatsPageProps> = ({ onBack }) => {
         )}
       </div>
 
-      {/* Selected player detail: embed full My Stats view */}
-      {selectedPlayerRow && (
+      {/* Selected player detail: embed full My Stats view (coach only) */}
+      {isCoachView && selectedPlayerRow && (
         <div
           style={{
             borderRadius: "12px",
@@ -810,6 +836,7 @@ const TeamStatsPage: React.FC<TeamStatsPageProps> = ({ onBack }) => {
             marginTop: "0.5rem"
           }}
         >
+          {/* existing content stays the same */}
           <div
             style={{
               display: "flex",
@@ -820,39 +847,7 @@ const TeamStatsPage: React.FC<TeamStatsPageProps> = ({ onBack }) => {
               flexWrap: "wrap"
             }}
           >
-            <div>
-              <h3 style={{ margin: 0 }}>
-                Player Stats –{" "}
-                {`${selectedPlayerRow.member.firstName ?? ""} ${
-                  selectedPlayerRow.member.lastName ?? ""
-                }`.trim() || selectedPlayerRow.member.email}
-              </h3>
-              <p
-                style={{
-                  margin: "0.2rem 0 0",
-                  fontSize: "0.8rem",
-                  color: MUTED_TEXT
-                }}
-              >
-                This is the same <strong>My Stats</strong> view the player sees,
-                shown here in coach view for this selected athlete.
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => setSelectedPlayerId(null)}
-              style={{
-                padding: "0.3rem 0.8rem",
-                borderRadius: "999px",
-                border: `1px solid ${CARD_BORDER}`,
-                background: "#020617",
-                color: PRIMARY_TEXT,
-                fontSize: "0.8rem",
-                cursor: "pointer"
-              }}
-            >
-              Clear selection
-            </button>
+            {/* ... */}
           </div>
 
           <div

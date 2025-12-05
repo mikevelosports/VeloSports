@@ -205,3 +205,34 @@ export async function acceptTeamInvitation(
     status: string;
   };
 }
+
+/**
+ * Leave a team as the current member.
+ *
+ * DELETE /api/teams/:teamId/members
+ * Body:
+ *  - profileId (the member leaving the team)
+ */
+export async function leaveTeam(
+  teamId: string,
+  profileId: string
+): Promise<void> {
+  const res = await fetch(`/api/teams/${teamId}/members`, {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ profileId })
+  });
+
+  if (!res.ok && res.status !== 204) {
+    let message = `Failed to leave team: ${res.status} ${res.statusText}`;
+    try {
+      const body = await res.json();
+      if (body?.error && typeof body.error === "string") {
+        message = body.error;
+      }
+    } catch {
+      // ignore JSON parse errors
+    }
+    throw new Error(message);
+  }
+}

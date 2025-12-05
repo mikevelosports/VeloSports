@@ -1,10 +1,7 @@
 // frontend/src/pages/StartSessionPage.tsx
 import React, { useEffect, useMemo, useState } from "react";
 import { useAuth } from "../context/AuthContext";
-import {
-  fetchProtocols,
-  fetchProtocolWithSteps
-} from "../api/client";
+import { fetchProtocols, fetchProtocolWithSteps } from "../api/client";
 import type {
   Protocol,
   ProtocolWithSteps,
@@ -46,8 +43,6 @@ const CATEGORY_LABELS: Record<CategoryKey, string> = {
   warm_up: "Warm-up",
   assessments: "Assessments"
 };
-
-
 
 const normalizeTitle = (title: string) => title.trim().toLowerCase();
 
@@ -148,15 +143,14 @@ const PROTOCOL_MEDIA: Record<string, ProtocolMedia> = {
     // vimeoId can be added here once you have it.
   },
 
-
   // ---- Exit Velo Application ----
   "exit velo application level 1": {
-    vimeoId: "1112077065",     
+    vimeoId: "1112077065",
     introText:
       "Maxing out your bat speed when you are actually trying to hit a baseball is what this is all about. This protocol helps you apply your new bat speed to exit velo."
   },
   "exit velo application level 2": {
-    vimeoId: "1112077318",     
+    vimeoId: "1112077318",
     introText:
       "Maxing out your bat speed when you are actually trying to hit a baseball is what this is all about. This protocol helps you apply your new bat speed to exit velo."
   },
@@ -166,7 +160,6 @@ const PROTOCOL_MEDIA: Record<string, ProtocolMedia> = {
       "Maxing out your bat speed when you are actually trying to hit a baseball is what this is all about. This protocol helps you apply your new bat speed to exit velo."
   },
 
-  
   // ---- Assessments ----
   "assessments speed full": {
     introText:
@@ -233,13 +226,11 @@ const protocolSortKey = (p: Protocol): [number, number, string] => {
   return [catRank, levelRank, title];
 };
 
-
 const ProgressBar: React.FC<{ completed: number; total: number }> = ({
   completed,
   total
 }) => {
-  const pct =
-    total === 0 ? 0 : Math.round((completed / total) * 100);
+  const pct = total === 0 ? 0 : Math.round((completed / total) * 100);
 
   return (
     <div style={{ margin: "0.75rem 0", width: "100%" }}>
@@ -440,7 +431,7 @@ const SpeedSessionView: React.FC<SessionViewProps> = ({
   // NEW: derive column label from the step's metric_label
   const metricLabel =
     metricSteps[0]?.metric_label ?? "Max Bat Speed (mph)";
-  
+
   const [inputs, setInputs] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1839,7 +1830,7 @@ const TabbedSessionView: React.FC<TabbedSessionViewProps> = (props) => {
   if (category === "warm_up") {
     return <WarmupSessionView {...props} />;
   }
-  // Default: Overspeed / Counterweight
+  // Default: Overspeed / Counterweight / Exit Velo Application
   return <SpeedSessionView {...props} />;
 };
 
@@ -1847,15 +1838,17 @@ const TabbedSessionView: React.FC<TabbedSessionViewProps> = (props) => {
 
 interface StartSessionPageProps {
   onBack: () => void;
+  // When a parent is starting a session for a selected child, we pass that playerId here.
+  playerIdOverride?: string;
   // If provided, we’ll auto-start this protocol (by title) when the page opens.
   initialProtocolTitle?: string;
 }
-
 
 type Mode = "select" | "run" | "complete";
 
 const StartSessionPage: React.FC<StartSessionPageProps> = ({
   onBack,
+  playerIdOverride,
   initialProtocolTitle
 }) => {
   const { currentProfile } = useAuth();
@@ -1893,44 +1886,21 @@ const StartSessionPage: React.FC<StartSessionPageProps> = ({
     loadProtocols();
   }, [category]);
 
-  // Auto-start when we come from My Program
-  useEffect(() => {
-    if (!initialProtocolTitle) return;
-    if (autoLaunchedFromProgram) return;
-    if (mode !== "select") return;
-    if (loadingProtocols || startingSession) return;
-    if (protocols.length === 0) return;
-
-    const target = initialProtocolTitle.trim().toLowerCase();
-
-    // Exact match first
-    let match =
-      protocols.find(
-        (p) => p.title.trim().toLowerCase() === target
-      ) ??
-      // Fallback: substring match
-      protocols.find((p) =>
-        p.title.trim().toLowerCase().includes(target)
-      );
-
-    if (match) {
-      setAutoLaunchedFromProgram(true);
-      // Reuse existing handler
-      handleStartForProtocol(match);
-    }
-  }, [
-    initialProtocolTitle,
-    autoLaunchedFromProgram,
-    mode,
-    loadingProtocols,
-    startingSession,
-    protocols
-  ]);
-
-
   if (!currentProfile) return null;
 
-  if (currentProfile.role !== "player") {
+  const isPlayer = currentProfile.role === "player";
+  const isParent = currentProfile.role === "parent";
+  const isParentStartingForChild = isParent && !!playerIdOverride;
+
+  // This is the profile whose stats should get the session
+  const targetPlayerId = isPlayer
+    ? currentProfile.id
+    : isParentStartingForChild
+    ? playerIdOverride!
+    : null;
+
+  // Guard: only allow players, or parents with a selected player
+  if (!isPlayer && !isParentStartingForChild) {
     return (
       <section
         style={{
@@ -1957,24 +1927,65 @@ const StartSessionPage: React.FC<StartSessionPageProps> = ({
           ← Back to dashboard
         </button>
         <h2 style={{ marginTop: 0 }}>Start Session</h2>
-        <p style={{ color: MUTED_TEXT }}>
-          For now, sessions can only be started while logged in as a{" "}
-          <strong>Player</strong>. Please log in as a player profile using the
-          dev login screen.
+        <p style={{ color: MUTED_TEXT, fontSize: "0.9rem" }}>
+          Sessions can be started when you are logged in as a{" "}
+          <strong>player</strong>, or as a{" "}
+          <strong>parent with a player selected</strong>. Use the parent
+          player selector on the dashboard to choose a player first.
         </p>
       </section>
     );
   }
 
+  // Auto-start when we come from My Program
+  useEffect(() => {
+    if (!initialProtocolTitle) return;
+    if (autoLaunchedFromProgram) return;
+    if (mode !== "select") return;
+    if (loadingProtocols || startingSession) return;
+    if (protocols.length === 0) return;
+
+    const target = initialProtocolTitle.trim().toLowerCase();
+
+    // Exact match first
+    let match =
+      protocols.find(
+        (p) => p.title.trim().toLowerCase() === target
+      ) ??
+      // Fallback: substring match
+      protocols.find((p) =>
+        p.title.trim().toLowerCase().includes(target)
+      );
+
+    if (match) {
+      setAutoLaunchedFromProgram(true);
+      // Reuse existing handler
+      handleStartForProtocol(match);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    initialProtocolTitle,
+    autoLaunchedFromProgram,
+    mode,
+    loadingProtocols,
+    startingSession,
+    protocols
+  ]);
+
   const handleStartForProtocol = async (protocol: Protocol) => {
+    if (!targetPlayerId) {
+      setError("No player selected to start this session.");
+      return;
+    }
+
     try {
       setStartingSession(true);
       setError(null);
 
       const session = await createSession({
-        playerId: currentProfile.id,
+        playerId: targetPlayerId, // ✅ child if parent view, self if player
         protocolId: protocol.id,
-        createdByProfileId: currentProfile.id,
+        createdByProfileId: currentProfile.id, // ✅ whoever is logged in
         notes: `Session for ${protocol.title}`
       });
 
@@ -2007,7 +2018,13 @@ const StartSessionPage: React.FC<StartSessionPageProps> = ({
   );
 
   const fullName =
-    (currentProfile.first_name ?? "") + " " + (currentProfile.last_name ?? "");
+    (currentProfile.first_name ?? "") +
+    " " +
+    (currentProfile.last_name ?? "");
+
+  const viewerLabel = isParentStartingForChild
+    ? "your selected player"
+    : fullName.trim() || currentProfile.email || "this player";
 
   if (mode === "run" && activeSession && activeProtocol) {
     return (
@@ -2035,6 +2052,19 @@ const StartSessionPage: React.FC<StartSessionPageProps> = ({
         >
           ← Back to dashboard
         </button>
+        {isParentStartingForChild && (
+          <p
+            style={{
+              marginTop: 0,
+              marginBottom: "0.5rem",
+              fontSize: "0.8rem",
+              color: MUTED_TEXT
+            }}
+          >
+            This session is being recorded for{" "}
+            <strong>your selected player</strong>.
+          </p>
+        )}
         <TabbedSessionView
           session={activeSession}
           protocol={activeProtocol}
@@ -2116,7 +2146,7 @@ const StartSessionPage: React.FC<StartSessionPageProps> = ({
         }}
       >
         Choose a category and protocol to run for{" "}
-        <strong>{fullName.trim() || currentProfile.email}</strong>.
+        <strong>{viewerLabel}</strong>.
       </p>
 
       {/* Category filter */}
@@ -2173,7 +2203,8 @@ const StartSessionPage: React.FC<StartSessionPageProps> = ({
             <div
               style={{
                 display: "grid",
-                gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
+                gridTemplateColumns:
+                  "repeat(auto-fit, minmax(260px, 1fr))",
                 gap: "1.25rem"
               }}
             >

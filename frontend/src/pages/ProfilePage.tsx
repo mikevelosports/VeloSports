@@ -63,7 +63,8 @@ const AppSettingsSection: React.FC = () => {
       "Account deletion will eventually remove your data from Velo.\n\nFor now, please reach out to support to delete your account. Do you want to open your email client?"
     );
     if (confirmed) {
-      window.location.href = "mailto:support@velosports.test?subject=Delete%20my%20account";
+      window.location.href =
+        "mailto:support@velosports.test?subject=Delete%20my%20account";
     }
   };
 
@@ -72,9 +73,7 @@ const AppSettingsSection: React.FC = () => {
     return {
       padding: "0.3rem 0.8rem",
       borderRadius: "999px",
-      border: `1px solid ${
-        isActive ? ACCENT : "rgba(75,85,99,0.8)"
-      }`,
+      border: `1px solid ${isActive ? ACCENT : "rgba(75,85,99,0.8)"}`,
       background: isActive ? ACCENT : "#020617",
       color: isActive ? "#0f172a" : PRIMARY_TEXT,
       fontSize: "0.8rem",
@@ -139,8 +138,8 @@ const AppSettingsSection: React.FC = () => {
             Appearance
           </div>
           <div style={{ color: MUTED_TEXT }}>
-            Choose light or dark mode. We&apos;ll eventually sync this with
-            your system preference.
+            Choose light or dark mode. We&apos;ll eventually sync this with your
+            system preference.
           </div>
         </div>
         <div
@@ -196,8 +195,7 @@ const AppSettingsSection: React.FC = () => {
             Notifications
           </div>
           <div style={{ color: MUTED_TEXT }}>
-            Email updates about new protocols, features, and progress
-            insights.
+            Email updates about new protocols, features, and progress insights.
           </div>
         </div>
         <div
@@ -327,8 +325,8 @@ const LegalAndPrivacySection: React.FC = () => {
           color: MUTED_TEXT
         }}
       >
-        High level summary of how Velo treats your data. This is not a
-        final legal document, but a friendly overview.
+        High level summary of how Velo treats your data. This is not a final
+        legal document, but a friendly overview.
       </p>
       <ul
         style={{
@@ -344,16 +342,16 @@ const LegalAndPrivacySection: React.FC = () => {
           <strong>My Program</strong>, stats, and team views.
         </li>
         <li>
-          Coaches only see data for athletes they&apos;re explicitly
-          connected to via teams.
+          Coaches only see data for athletes they&apos;re explicitly connected
+          to via teams.
         </li>
         <li>
-          We don&apos;t sell your personal data. Any analytics usage will
-          be aggregated and anonymized.
+          We don&apos;t sell your personal data. Any analytics usage will be
+          aggregated and anonymized.
         </li>
         <li>
-          If you ever want your account removed, reach out and we&apos;ll
-          help you cleanly delete it.
+          If you ever want your account removed, reach out and we&apos;ll help
+          you cleanly delete it.
         </li>
       </ul>
       <p
@@ -363,8 +361,8 @@ const LegalAndPrivacySection: React.FC = () => {
           color: MUTED_TEXT
         }}
       >
-        Full Terms of Use and Privacy Policy will live on the marketing
-        site and be linked here later.
+        Full Terms of Use and Privacy Policy will live on the marketing site and
+        be linked here later.
       </p>
     </section>
   );
@@ -396,6 +394,15 @@ interface FormState {
   photo_url: string;
 }
 
+interface TargetProfileHeader {
+  first_name: string | null;
+  last_name: string | null;
+  email: string | null;
+  photo_url: string | null;
+  playing_level: string | null;
+  current_team: string | null;
+}
+
 function parseNumberLike(v: any): number | null {
   if (typeof v === "number") return v;
   if (typeof v === "string" && v.trim() !== "") {
@@ -405,10 +412,7 @@ function parseNumberLike(v: any): number | null {
   return null;
 }
 
-function cmToFeetInches(cm: number | null): {
-  feet: string;
-  inches: string;
-} {
+function cmToFeetInches(cm: number | null): { feet: string; inches: string } {
   if (cm == null || Number.isNaN(cm)) {
     return { feet: "", inches: "" };
   }
@@ -428,8 +432,7 @@ function computeProfileCompleteFromForm(f: FormState): boolean {
   const hasHeight = !!f.height_feet && !!f.height_inches;
   const hasWeight = !!f.weight_lbs;
   const hasPlayingLevel = !!f.playing_level;
-  const hasPositions =
-    f.positions_played && f.positions_played.length > 0;
+  const hasPositions = f.positions_played && f.positions_played.length > 0;
   return (
     hasBirthdate &&
     hasHeight &&
@@ -463,10 +466,20 @@ const EMPTY_FORM: FormState = {
   photo_url: ""
 };
 
-const ProfilePage: React.FC = () => {
+interface ProfilePageProps {
+  /**
+   * When provided (parent view), load and edit this player's profile
+   * instead of the logged-in account's profile.
+   */
+  playerIdOverride?: string;
+}
+
+const ProfilePage: React.FC<ProfilePageProps> = ({ playerIdOverride }) => {
   const { currentProfile } = useAuth();
 
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
+  const [targetProfileHeader, setTargetProfileHeader] =
+    useState<TargetProfileHeader | null>(null);
   const [loadingProfile, setLoadingProfile] = useState(true);
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -476,11 +489,17 @@ const ProfilePage: React.FC = () => {
 
   if (!currentProfile) return null;
 
-  const isPlayer = currentProfile.role === "player";
+  const isPlayerSelf = currentProfile.role === "player";
+  const isParent = currentProfile.role === "parent";
+  const isEditingChild = isParent && !!playerIdOverride;
 
-  // 🔄 Load full profile from backend on mount
+  // This is the profile row we're loading + editing
+  const targetProfileId = playerIdOverride ?? currentProfile.id;
+
+  // 🔄 Load full profile from backend on mount / when target changes
   useEffect(() => {
-    if (!isPlayer) {
+    // Coaches / parents without a selected child: no player profile to load
+    if (!isPlayerSelf && !isEditingChild) {
       setLoadingProfile(false);
       return;
     }
@@ -489,16 +508,11 @@ const ProfilePage: React.FC = () => {
       try {
         setLoadingProfile(true);
         setError(null);
-        const res = await fetch(
-          `${API_BASE_URL}/profiles/${currentProfile.id}`
-        );
+        const res = await fetch(`${API_BASE_URL}/profiles/${targetProfileId}`);
         if (!res.ok) {
           const text = await res.text().catch(() => "");
           throw new Error(
-            `Failed to load profile (${res.status}): ${text.slice(
-              0,
-              200
-            )}`
+            `Failed to load profile (${res.status}): ${text.slice(0, 200)}`
           );
         }
         const p = await res.json();
@@ -544,8 +558,7 @@ const ProfilePage: React.FC = () => {
           current_coach_email: p.current_coach_email ?? "",
           jersey_number: p.jersey_number ?? "",
           positions_played: positions,
-          years_played:
-            p.years_played != null ? String(p.years_played) : "",
+          years_played: p.years_played != null ? String(p.years_played) : "",
           batting_avg_last_season:
             p.batting_avg_last_season != null
               ? String(p.batting_avg_last_season)
@@ -554,9 +567,15 @@ const ProfilePage: React.FC = () => {
         };
 
         setForm(nextForm);
-        setProfileComplete(
-          computeProfileCompleteFromForm(nextForm)
-        );
+        setProfileComplete(computeProfileCompleteFromForm(nextForm));
+        setTargetProfileHeader({
+          first_name: p.first_name ?? null,
+          last_name: p.last_name ?? null,
+          email: p.email ?? null,
+          photo_url: p.photo_url ?? null,
+          playing_level: p.playing_level ?? null,
+          current_team: p.current_team ?? null
+        });
       } catch (err: any) {
         console.error(err);
         setError(err?.message ?? "Failed to load profile");
@@ -566,16 +585,11 @@ const ProfilePage: React.FC = () => {
     };
 
     loadProfile();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentProfile.id, isPlayer]);
+  }, [targetProfileId, isPlayerSelf, isEditingChild]);
 
   const handleChange =
     (field: keyof FormState) =>
-    (
-      e: React.ChangeEvent<
-        HTMLInputElement | HTMLSelectElement
-      >
-    ) => {
+    (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
       const value = e.target.value;
       setForm((prev) => {
         const next = { ...prev, [field]: value };
@@ -600,7 +614,10 @@ const ProfilePage: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!isPlayer) return;
+    // Only allow updates when:
+    // - player editing self
+    // - parent editing a child
+    if (!isPlayerSelf && !isEditingChild) return;
 
     setSaving(true);
     setError(null);
@@ -645,22 +662,18 @@ const ProfilePage: React.FC = () => {
         current_coach_email: form.current_coach_email || null,
         jersey_number: form.jersey_number || null,
         positions_played:
-          form.positions_played &&
-          form.positions_played.length > 0
+          form.positions_played && form.positions_played.length > 0
             ? form.positions_played
             : null,
-        years_played: form.years_played
-          ? Number(form.years_played)
+        years_played: form.years_played ? Number(form.years_played) : null,
+        batting_avg_last_season: form.batting_avg_last_season
+          ? Number(form.batting_avg_last_season)
           : null,
-        batting_avg_last_season:
-          form.batting_avg_last_season
-            ? Number(form.batting_avg_last_season)
-            : null,
         photo_url: form.photo_url || null
       };
 
       const res = await fetch(
-        `${API_BASE_URL}/profiles/${currentProfile.id}`,
+        `${API_BASE_URL}/profiles/${targetProfileId}`,
         {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
@@ -671,15 +684,11 @@ const ProfilePage: React.FC = () => {
       if (!res.ok) {
         const text = await res.text().catch(() => "");
         throw new Error(
-          `Failed to update profile (${res.status}): ${text.slice(
-            0,
-            200
-          )}`
+          `Failed to update profile (${res.status}): ${text.slice(0, 200)}`
         );
       }
 
-      const nowComplete =
-        computeProfileCompleteFromForm(form);
+      const nowComplete = computeProfileCompleteFromForm(form);
       setProfileComplete(nowComplete);
       setSuccess("Profile updated");
       setEditing(false);
@@ -691,16 +700,13 @@ const ProfilePage: React.FC = () => {
     }
   };
 
-  const fullName = `${currentProfile.first_name ?? ""} ${
-    currentProfile.last_name ?? ""
+  // Simple meta for display
+  const header = targetProfileHeader;
+  const fullName = `${header?.first_name ?? ""} ${
+    header?.last_name ?? ""
   }`.trim();
-  const displayName =
-    fullName || currentProfile.email || "Player";
-
-  const avatarUrl =
-    form.photo_url ||
-    (currentProfile as any).photo_url ||
-    "";
+  const displayName = fullName || header?.email || "Player";
+  const avatarUrl = form.photo_url || header?.photo_url || "";
   const initials =
     displayName
       .split(" ")
@@ -709,8 +715,8 @@ const ProfilePage: React.FC = () => {
       .slice(0, 2)
       .join("") || "P";
 
-  // Non-player accounts: simple message, but still show settings + legal
-  if (!isPlayer) {
+  // Non-player accounts WITHOUT a selected child: simple message, plus settings/legal
+  if (!isPlayerSelf && !isEditingChild) {
     return (
       <>
         <section
@@ -740,8 +746,9 @@ const ProfilePage: React.FC = () => {
             }}
           >
             Detailed player profiles are only needed for{" "}
-            <strong>Player</strong> accounts. Coaches and parents
-            will get dedicated team / athlete views later.
+            <strong>Player</strong> accounts. Coaches and parents will get
+            dedicated team / athlete views later. As a parent, pick a player
+            from the selector above to edit their profile.
           </p>
         </section>
         <AppSettingsSection />
@@ -783,16 +790,11 @@ const ProfilePage: React.FC = () => {
   // === SUMMARY VIEW ===
   if (!editing) {
     const levelLabel =
-      form.playing_level ||
-      (currentProfile as any).playing_level ||
-      "Not set yet";
+      form.playing_level || header?.playing_level || "Not set yet";
     const teamLabel =
-      form.current_team ||
-      (currentProfile as any).current_team ||
-      "Not set yet";
+      form.current_team || header?.current_team || "Not set yet";
     const positionsLabel =
-      form.positions_played &&
-      form.positions_played.length > 0
+      form.positions_played && form.positions_played.length > 0
         ? form.positions_played.join(", ")
         : "Not set yet";
 
@@ -801,9 +803,7 @@ const ProfilePage: React.FC = () => {
         ? `${form.height_feet}' ${form.height_inches}"`
         : "Not set yet";
 
-    const weightLabel = form.weight_lbs
-      ? `${form.weight_lbs} lbs`
-      : "Not set yet";
+    const weightLabel = form.weight_lbs ? `${form.weight_lbs} lbs` : "Not set yet";
 
     return (
       <>
@@ -884,15 +884,17 @@ const ProfilePage: React.FC = () => {
               >
                 {displayName}
               </h3>
-              <div
-                style={{
-                  margin: "0 0 0.15rem",
-                  fontSize: "0.8rem",
-                  color: MUTED_TEXT
-                }}
-              >
-                {currentProfile.email}
-              </div>
+              {header?.email && (
+                <div
+                  style={{
+                    margin: "0 0 0.15rem",
+                    fontSize: "0.8rem",
+                    color: MUTED_TEXT
+                  }}
+                >
+                  {header.email}
+                </div>
+              )}
               <div
                 style={{
                   marginTop: "0.15rem",
@@ -911,6 +913,18 @@ const ProfilePage: React.FC = () => {
               >
                 Level: <strong>{levelLabel}</strong>
               </div>
+              {isEditingChild && (
+                <div
+                  style={{
+                    marginTop: "0.4rem",
+                    fontSize: "0.8rem",
+                    color: MUTED_TEXT
+                  }}
+                >
+                  You&apos;re editing this player from your{" "}
+                  <strong>parent account</strong>.
+                </div>
+              )}
             </div>
           </div>
 
@@ -931,8 +945,8 @@ const ProfilePage: React.FC = () => {
                   color: PRIMARY_TEXT
                 }}
               >
-                Make sure to complete your profile in order to have a
-                custom program built for you.
+                Make sure to complete this profile in order to have a custom
+                program built.
               </p>
               <button
                 type="button"
@@ -965,8 +979,8 @@ const ProfilePage: React.FC = () => {
                 color: MUTED_TEXT
               }}
             >
-              Your profile is ready for building a custom program. You
-              can update it anytime.
+              Profile is ready for building a custom program. You can update it
+              anytime.
             </p>
           )}
 
@@ -997,8 +1011,7 @@ const ProfilePage: React.FC = () => {
           <div
             style={{
               display: "grid",
-              gridTemplateColumns:
-                "repeat(auto-fit, minmax(200px, 1fr))",
+              gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
               gap: "0.8rem",
               marginTop: "0.5rem"
             }}
@@ -1024,9 +1037,7 @@ const ProfilePage: React.FC = () => {
                 }}
               >
                 <div>
-                  <strong style={{ color: PRIMARY_TEXT }}>
-                    Phone:&nbsp;
-                  </strong>
+                  <strong style={{ color: PRIMARY_TEXT }}>Phone:&nbsp;</strong>
                   {form.phone || "Not set yet"}
                 </div>
                 <div>
@@ -1036,15 +1047,11 @@ const ProfilePage: React.FC = () => {
                   {form.birthdate || "Not set yet"}
                 </div>
                 <div>
-                  <strong style={{ color: PRIMARY_TEXT }}>
-                    Height:&nbsp;
-                  </strong>
+                  <strong style={{ color: PRIMARY_TEXT }}>Height:&nbsp;</strong>
                   {heightLabel}
                 </div>
                 <div>
-                  <strong style={{ color: PRIMARY_TEXT }}>
-                    Weight:&nbsp;
-                  </strong>
+                  <strong style={{ color: PRIMARY_TEXT }}>Weight:&nbsp;</strong>
                   {weightLabel}
                 </div>
               </div>
@@ -1117,9 +1124,7 @@ const ProfilePage: React.FC = () => {
                 fontSize: "0.95rem"
               }}
             >
-              {profileComplete
-                ? "Update profile"
-                : "Complete profile"}
+              {profileComplete ? "Update profile" : "Complete profile"}
             </button>
           </div>
         </section>
@@ -1186,9 +1191,8 @@ const ProfilePage: React.FC = () => {
             color: MUTED_TEXT
           }}
         >
-          Fill these out so we can build a better{" "}
-          <strong>My Program</strong> for you and give coaches the right
-          context.
+          Fill these out so we can build a better <strong>My Program</strong>{" "}
+          and give coaches the right context.
         </p>
 
         <form
@@ -1215,7 +1219,7 @@ const ProfilePage: React.FC = () => {
               type="text"
               value={form.photo_url}
               onChange={handleChange("photo_url")}
-              placeholder="Paste a link to your profile photo"
+              placeholder="Paste a link to a profile photo"
               style={{
                 width: "100%",
                 padding: "0.45rem 0.6rem",
@@ -1232,8 +1236,7 @@ const ProfilePage: React.FC = () => {
           <div
             style={{
               display: "grid",
-              gridTemplateColumns:
-                "repeat(auto-fit, minmax(220px, 1fr))",
+              gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
               gap: "0.75rem"
             }}
           >
@@ -1411,14 +1414,13 @@ const ProfilePage: React.FC = () => {
                 color: MUTED_TEXT
               }}
             >
-              For now, enter your address manually. We&apos;ll add Google
-              Maps autocomplete later.
+              For now, enter the address manually. We&apos;ll add Google Maps
+              autocomplete later.
             </p>
             <div
               style={{
                 display: "grid",
-                gridTemplateColumns:
-                  "repeat(auto-fit, minmax(220px, 1fr))",
+                gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
                 gap: "0.75rem"
               }}
             >
@@ -1597,8 +1599,7 @@ const ProfilePage: React.FC = () => {
             <div
               style={{
                 display: "grid",
-                gridTemplateColumns:
-                  "repeat(auto-fit, minmax(220px, 1fr))",
+                gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
                 gap: "0.75rem"
               }}
             >
@@ -1731,14 +1732,13 @@ const ProfilePage: React.FC = () => {
                 color: MUTED_TEXT
               }}
             >
-              We&apos;ll eventually use this to check if your coach is
-              already on Velo and notify / invite them.
+              We&apos;ll eventually use this to check if the coach is already on
+              Velo and notify / invite them.
             </p>
             <div
               style={{
                 display: "grid",
-                gridTemplateColumns:
-                  "repeat(auto-fit, minmax(220px, 1fr))",
+                gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
                 gap: "0.75rem"
               }}
             >
@@ -1813,8 +1813,7 @@ const ProfilePage: React.FC = () => {
             <div
               style={{
                 display: "grid",
-                gridTemplateColumns:
-                  "repeat(auto-fit, minmax(220px, 1fr))",
+                gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
                 gap: "0.75rem"
               }}
             >
@@ -1837,8 +1836,7 @@ const ProfilePage: React.FC = () => {
                   }}
                 >
                   {POSITION_CHOICES.map((pos) => {
-                    const selected =
-                      form.positions_played.includes(pos);
+                    const selected = form.positions_played.includes(pos);
                     return (
                       <button
                         key={pos}
@@ -1850,9 +1848,7 @@ const ProfilePage: React.FC = () => {
                           border: `1px solid ${
                             selected ? ACCENT : CARD_BORDER
                           }`,
-                          background: selected
-                            ? ACCENT
-                            : "transparent",
+                          background: selected ? ACCENT : "transparent",
                           color: selected ? "#0f172a" : PRIMARY_TEXT,
                           fontSize: "0.8rem",
                           cursor: "pointer"
@@ -1909,9 +1905,7 @@ const ProfilePage: React.FC = () => {
                   min={0}
                   max={1}
                   value={form.batting_avg_last_season}
-                  onChange={handleChange(
-                    "batting_avg_last_season"
-                  )}
+                  onChange={handleChange("batting_avg_last_season")}
                   placeholder="e.g. 0.275"
                   style={{
                     width: "100%",
