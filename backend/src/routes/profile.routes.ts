@@ -154,7 +154,9 @@ router.put(
         "levels_coached",
         "current_organization",
         "team_logo_url",
-        "bio" // <-- NEW: bio column on profiles
+        "bio",
+        "softball",
+        "profile_complete" // ✅ allow updating profile_complete
       ];
 
       const payload: Record<string, any> = {};

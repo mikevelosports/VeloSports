@@ -1,7 +1,8 @@
+// backend/src/routes/session.routes.ts
 import { Router, Request, Response, NextFunction } from "express";
 import { supabaseAdmin } from "../config/supabaseClient";
 import { updatePlayerProgramStateForSession } from "./programState.routes";
-
+import { awardMedalsForPlayerEvents } from "./medals.routes";
 
 const router = Router();
 
@@ -220,13 +221,62 @@ router.post(
         );
       }
 
-      res.json(session);
+      // Best-effort medal awarding for this completed session
+      let newlyAwarded: any[] = [];
+      try {
+        const { data: protocol, error: protocolError } =
+          await supabaseAdmin
+            .from("protocols")
+            .select("id, title, category, is_assessment")
+            .eq("id", session.protocol_id)
+            .single();
+
+        if (protocolError) {
+          throw protocolError;
+        }
+
+        const category = (protocol?.category || "").toLowerCase();
+        const isAssessment = !!protocol?.is_assessment;
+
+        const eventCodes: string[] = ["session_completed"];
+
+        if (category) {
+          eventCodes.push(`session_completed:${category}`);
+        }
+        if (isAssessment) {
+          eventCodes.push("session_completed:assessment");
+        }
+
+        const medalResult = await awardMedalsForPlayerEvents({
+          playerId: session.player_id,
+          eventCodes,
+          source: "session_completed",
+          context: {
+            session_id: session.id,
+            protocol_id: protocol?.id ?? null,
+            protocol_title: protocol?.title ?? null,
+            category
+          }
+        });
+
+        newlyAwarded = medalResult?.newlyAwarded ?? [];
+      } catch (medalErr) {
+        console.error(
+          "[sessions] Failed to award medals for completed session",
+          sessionId,
+          medalErr
+        );
+      }
+
+      res.json({
+        session,
+        newly_awarded_medals: newlyAwarded
+      });
     } catch (err) {
       next(err);
     }
   }
 );
-
 
 /**
  * Get a session with its entries.

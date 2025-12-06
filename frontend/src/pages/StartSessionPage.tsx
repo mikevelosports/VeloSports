@@ -10,9 +10,14 @@ import type {
 import {
   createSession,
   addSessionEntries,
-  completeSession
+  completeSessionWithAwards,
+  fetchSessionWithEntries
 } from "../api/sessions";
-import type { Session } from "../api/sessions";
+import type {
+  Session,
+  SessionCompletionResult,
+  SessionWithEntries
+} from "../api/sessions";
 
 // ---- Theme + helpers ----
 
@@ -130,17 +135,14 @@ const PROTOCOL_MEDIA: Record<string, ProtocolMedia> = {
   "power mechanics ground force level 1": {
     introText:
       "Using the ground is very important to producing maximum power. In this protocol we will work on the basics of generating more speed from the ground up."
-    // vimeoId can be added here once you have it.
   },
   "power mechanics ground force level 2": {
     introText:
       "Pushing toward and away from the pitcher is very important to creating maximum power. This protocol will help you develop lateral force and torque."
-    // vimeoId can be added here once you have it.
   },
   "power mechanics ground force level 3": {
     introText:
       "Maxing out your vertical force and using it to help make the bat move faster is what our level 3 ground force protocol is all about."
-    // vimeoId can be added here once you have it.
   },
 
   // ---- Exit Velo Application ----
@@ -372,12 +374,12 @@ const SessionHeader: React.FC<SessionHeaderProps> = ({ protocol }) => {
   );
 };
 
-// ---- Speed protocols (Overspeed + Counterweight) ----
+// ---- Speed protocols (Overspeed + Counterweight + Exit Velo Application) ----
 
 interface SessionViewProps {
   session: Session;
   protocol: ProtocolWithSteps;
-  onDone: () => void;
+  onDone: (result: SessionCompletionResult) => void;
 }
 
 const SpeedSessionView: React.FC<SessionViewProps> = ({
@@ -428,7 +430,7 @@ const SpeedSessionView: React.FC<SessionViewProps> = ({
     [steps]
   );
 
-  // NEW: derive column label from the step's metric_label
+  // derive column label from the step's metric_label
   const metricLabel =
     metricSteps[0]?.metric_label ?? "Max Bat Speed (mph)";
 
@@ -481,17 +483,17 @@ const SpeedSessionView: React.FC<SessionViewProps> = ({
             side: null
           };
         })
-        .filter(Boolean);
+        .filter(Boolean) as any[];
 
       if (entries.length > 0) {
-        await addSessionEntries(session.id, entries as any);
+        await addSessionEntries(session.id, entries);
       }
 
-      await completeSession(
+      const result = await completeSessionWithAwards(
         session.id,
         `Completed protocol: ${protocol.title}`
       );
-      onDone();
+      onDone(result);
     } catch (err: any) {
       setError(err?.message ?? "Failed to complete session");
     } finally {
@@ -846,9 +848,7 @@ const PowerMechanicsSessionView: React.FC<SessionViewProps> = ({
       ? drillGroups[activeDrill]
       : [];
 
-  const isSeq1 = titleLower.includes("sequencing level 1");
   const isSeq2 = titleLower.includes("sequencing level 2");
-  const isBatDelivery = titleLower.includes("bat delivery");
 
   const toggleComplete = (stepId: string) => {
     setCompleteFlags((prev) => ({
@@ -861,12 +861,11 @@ const PowerMechanicsSessionView: React.FC<SessionViewProps> = ({
     try {
       setSaving(true);
       setError(null);
-      // For Power Mechanics we only need the session count
-      await completeSession(
+      const result = await completeSessionWithAwards(
         session.id,
         `Completed power mechanics protocol: ${protocol.title}`
       );
-      onDone();
+      onDone(result);
     } catch (err: any) {
       setError(err?.message ?? "Failed to complete session");
     } finally {
@@ -1155,7 +1154,6 @@ const WarmupSessionView: React.FC<SessionViewProps> = ({
 
   useEffect(() => {
     if (!activeDrill && drillNames.length > 0) {
-      // enforce Coordination, Mobility, Swings order if dynamic
       if (isDynamic) {
         const ordered: string[] = [];
         if (drillGroups["Coordination"]) ordered.push("Coordination");
@@ -1191,11 +1189,11 @@ const WarmupSessionView: React.FC<SessionViewProps> = ({
     try {
       setSaving(true);
       setError(null);
-      await completeSession(
+      const result = await completeSessionWithAwards(
         session.id,
         `Completed warm-up protocol: ${protocol.title}`
       );
-      onDone();
+      onDone(result);
     } catch (err: any) {
       setError(err?.message ?? "Failed to complete session");
     } finally {
@@ -1601,11 +1599,11 @@ const AssessmentSessionView: React.FC<SessionViewProps> = ({
         await addSessionEntries(session.id, entries);
       }
 
-      await completeSession(
+      const result = await completeSessionWithAwards(
         session.id,
         `Completed assessment: ${protocol.title}`
       );
-      onDone();
+      onDone(result);
     } catch (err: any) {
       setError(err?.message ?? "Failed to complete assessment");
     } finally {
@@ -1815,7 +1813,7 @@ const AssessmentSessionView: React.FC<SessionViewProps> = ({
 interface TabbedSessionViewProps {
   session: Session;
   protocol: ProtocolWithSteps;
-  onDone: () => void;
+  onDone: (result: SessionCompletionResult) => void;
 }
 
 const TabbedSessionView: React.FC<TabbedSessionViewProps> = (props) => {
@@ -1842,6 +1840,9 @@ interface StartSessionPageProps {
   playerIdOverride?: string;
   // If provided, we’ll auto-start this protocol (by title) when the page opens.
   initialProtocolTitle?: string;
+  // Optional: navigation targets from recap
+  onViewStats?: () => void;
+  onViewProgram?: () => void;
 }
 
 type Mode = "select" | "run" | "complete";
@@ -1849,7 +1850,9 @@ type Mode = "select" | "run" | "complete";
 const StartSessionPage: React.FC<StartSessionPageProps> = ({
   onBack,
   playerIdOverride,
-  initialProtocolTitle
+  initialProtocolTitle,
+  onViewStats,
+  onViewProgram
 }) => {
   const { currentProfile } = useAuth();
   const [mode, setMode] = useState<Mode>("select");
@@ -1862,6 +1865,14 @@ const StartSessionPage: React.FC<StartSessionPageProps> = ({
   const [activeSession, setActiveSession] = useState<Session | null>(null);
   const [activeProtocol, setActiveProtocol] =
     useState<ProtocolWithSteps | null>(null);
+
+  // Completion + recap state
+  const [completionResult, setCompletionResult] =
+    useState<SessionCompletionResult | null>(null);
+  const [completedSessionDetails, setCompletedSessionDetails] =
+    useState<SessionWithEntries | null>(null);
+  const [loadingRecap, setLoadingRecap] = useState(false);
+  const [recapError, setRecapError] = useState<string | null>(null);
 
   // Track whether we've already auto-started from My Program
   const [autoLaunchedFromProgram, setAutoLaunchedFromProgram] =
@@ -1959,8 +1970,7 @@ const StartSessionPage: React.FC<StartSessionPageProps> = ({
 
     if (match) {
       setAutoLaunchedFromProgram(true);
-      // Reuse existing handler
-      handleStartForProtocol(match);
+      void handleStartForProtocol(match);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
@@ -1972,6 +1982,42 @@ const StartSessionPage: React.FC<StartSessionPageProps> = ({
     protocols
   ]);
 
+  // Load full session details (entries) for recap after completion
+  useEffect(() => {
+    if (mode !== "complete") return;
+    if (!completionResult) return;
+
+    const sessionId = completionResult.session.id;
+    let cancelled = false;
+
+    const load = async () => {
+      try {
+        setLoadingRecap(true);
+        setRecapError(null);
+        const full = await fetchSessionWithEntries(sessionId);
+        if (!cancelled) {
+          setCompletedSessionDetails(full);
+        }
+      } catch (err: any) {
+        if (!cancelled) {
+          console.error(err);
+          setRecapError(
+            err?.message ?? "Failed to load session details."
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setLoadingRecap(false);
+        }
+      }
+    };
+
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [mode, completionResult]);
+
   const handleStartForProtocol = async (protocol: Protocol) => {
     if (!targetPlayerId) {
       setError("No player selected to start this session.");
@@ -1981,11 +2027,13 @@ const StartSessionPage: React.FC<StartSessionPageProps> = ({
     try {
       setStartingSession(true);
       setError(null);
+      setCompletionResult(null);
+      setCompletedSessionDetails(null);
 
       const session = await createSession({
-        playerId: targetPlayerId, // ✅ child if parent view, self if player
+        playerId: targetPlayerId,
         protocolId: protocol.id,
-        createdByProfileId: currentProfile.id, // ✅ whoever is logged in
+        createdByProfileId: currentProfile.id,
         notes: `Session for ${protocol.title}`
       });
 
@@ -2001,7 +2049,9 @@ const StartSessionPage: React.FC<StartSessionPageProps> = ({
     }
   };
 
-  const handleSessionDone = () => {
+  const handleSessionDone = (result: SessionCompletionResult) => {
+    setCompletionResult(result);
+    setCompletedSessionDetails(null);
     setMode("complete");
   };
 
@@ -2075,6 +2125,54 @@ const StartSessionPage: React.FC<StartSessionPageProps> = ({
   }
 
   if (mode === "complete") {
+    const session = completionResult?.session ?? activeSession;
+    const protocol = activeProtocol;
+    const awards = completionResult?.newly_awarded_medals ?? [];
+    const entries = completedSessionDetails?.entries ?? [];
+    const completedAt =
+      session?.completed_at ?? session?.started_at ?? null;
+
+    const categoryLabel =
+      protocol &&
+      CATEGORY_LABELS[protocol.category as CategoryKey]
+        ? CATEGORY_LABELS[protocol.category as CategoryKey]
+        : protocol?.category ?? "";
+
+    // Map protocol_step_id -> numeric values from entries
+    const valuesByStepId: Record<string, number[]> = {};
+    if (protocol && entries.length > 0) {
+      for (const e of entries) {
+        if (e.value_number == null) continue;
+        const key = e.protocol_step_id;
+        if (!valuesByStepId[key]) {
+          valuesByStepId[key] = [];
+        }
+        valuesByStepId[key].push(e.value_number);
+      }
+    }
+
+    const stepsWithValues =
+      protocol?.steps.filter(
+        (s) => valuesByStepId[s.id] && valuesByStepId[s.id].length > 0
+      ) ?? [];
+
+    const completedProtocolId =
+      session?.protocol_id ?? protocol?.id ?? null;
+
+    // "Up next" approximates "other sessions in today's program" with
+    // other protocols from the same category
+    const nextSuggestions =
+      completedProtocolId && orderedProtocols.length > 0
+        ? orderedProtocols
+            .filter(
+              (p) =>
+                p.id !== completedProtocolId &&
+                (!protocol?.category ||
+                  p.category === protocol.category)
+            )
+            .slice(0, 3)
+        : [];
+
     return (
       <section
         style={{
@@ -2100,11 +2198,509 @@ const StartSessionPage: React.FC<StartSessionPageProps> = ({
         >
           ← Back to dashboard
         </button>
-        <h2 style={{ marginTop: 0 }}>Session complete</h2>
-        <p style={{ color: MUTED_TEXT }}>
-          Your data for this protocol has been saved. In a later step we’ll hook
-          this into badges, leaderboards, and progress views.
+
+        <h2
+          style={{
+            marginTop: 0,
+            marginBottom: "0.5rem",
+            fontSize: "1.2rem"
+          }}
+        >
+          Session recap
+        </h2>
+        <p
+          style={{
+            marginTop: 0,
+            marginBottom: "0.75rem",
+            color: MUTED_TEXT,
+            fontSize: "0.9rem"
+          }}
+        >
+          Your work for this protocol has been saved. Here&apos;s a quick
+          recap of what you just did, any new medals you unlocked, and a few
+          options for what to run next.
         </p>
+
+        {/* Session summary */}
+        {session && protocol && (
+          <section
+            style={{
+              marginBottom: "0.9rem",
+              padding: "0.8rem 0.9rem",
+              borderRadius: "10px",
+              border: `1px solid ${CARD_BORDER}`,
+              background: CARD_BG,
+              boxShadow: CARD_SHADOW
+            }}
+          >
+            <div
+              style={{
+                fontSize: "0.8rem",
+                textTransform: "uppercase",
+                letterSpacing: "0.08em",
+                color: MUTED_TEXT,
+                marginBottom: "0.25rem"
+              }}
+            >
+              Protocol
+            </div>
+            <h3
+              style={{
+                margin: "0 0 0.25rem",
+                fontSize: "1.05rem",
+                color: PRIMARY_TEXT
+              }}
+            >
+              {protocol.title}
+            </h3>
+            <div
+              style={{
+                fontSize: "0.8rem",
+                color: MUTED_TEXT,
+                marginBottom: "0.2rem"
+              }}
+            >
+              {categoryLabel && (
+                <>
+                  Category: <strong>{categoryLabel}</strong>
+                </>
+              )}
+            </div>
+            {completedAt && (
+              <div
+                style={{
+                  fontSize: "0.8rem",
+                  color: MUTED_TEXT
+                }}
+              >
+                Completed at:{" "}
+                <strong>
+                  {new Date(completedAt).toLocaleString()}
+                </strong>
+              </div>
+            )}
+          </section>
+        )}
+
+        {/* New medals */}
+        <section
+          style={{
+            marginBottom: "0.9rem",
+            padding: "0.8rem 0.9rem",
+            borderRadius: "10px",
+            border: `1px solid ${CARD_BORDER}`,
+            background: CARD_BG,
+            boxShadow: CARD_SHADOW
+          }}
+        >
+          <h3
+            style={{
+              margin: "0 0 0.35rem",
+              fontSize: "0.95rem"
+            }}
+          >
+            New medals earned
+          </h3>
+          {awards.length === 0 ? (
+            <p
+              style={{
+                margin: 0,
+                fontSize: "0.85rem",
+                color: MUTED_TEXT
+              }}
+            >
+              No new medals this session. Keep stacking workouts and they&apos;ll
+              start popping.
+            </p>
+          ) : (
+            <div
+              style={{
+                marginTop: "0.4rem",
+                display: "grid",
+                gridTemplateColumns:
+                  "repeat(auto-fit, minmax(180px, 1fr))",
+                gap: "0.75rem"
+              }}
+            >
+              {awards.map((award) => {
+                const medal = award.medal;
+                return (
+                  <div
+                    key={award.player_medal.id}
+                    style={{
+                      borderRadius: "10px",
+                      border: `1px solid ${CARD_BORDER}`,
+                      background: "#020617",
+                      padding: "0.6rem 0.7rem",
+                      display: "flex",
+                      gap: "0.6rem",
+                      alignItems: "center"
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: 40,
+                        height: 40,
+                        borderRadius: "999px",
+                        overflow: "hidden",
+                        border: `1px solid ${ACCENT}`,
+                        background:
+                          "radial-gradient(circle at top, #1f2937 0, #020617 70%)",
+                        flexShrink: 0,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center"
+                      }}
+                    >
+                      {medal.image_url ? (
+                        <img
+                          src={medal.image_url}
+                          alt={medal.badge_name}
+                          style={{
+                            width: "100%",
+                            height: "100%",
+                            objectFit: "cover"
+                          }}
+                        />
+                      ) : (
+                        <span
+                          style={{
+                            fontSize: "0.75rem",
+                            color: PRIMARY_TEXT
+                          }}
+                        >
+                          🏅
+                        </span>
+                      )}
+                    </div>
+                    <div style={{ minWidth: 0 }}>
+                      <div
+                        style={{
+                          fontSize: "0.85rem",
+                          color: PRIMARY_TEXT,
+                          fontWeight: 600,
+                          marginBottom: "0.1rem",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap"
+                        }}
+                      >
+                        {medal.badge_name}
+                      </div>
+                      {medal.description && (
+                        <div
+                          style={{
+                            fontSize: "0.75rem",
+                            color: MUTED_TEXT,
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap"
+                          }}
+                        >
+                          {medal.description}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </section>
+
+        {/* Stats recap */}
+        <section
+          style={{
+            marginBottom: "0.9rem",
+            padding: "0.8rem 0.9rem",
+            borderRadius: "10px",
+            border: `1px solid ${CARD_BORDER}`,
+            background: CARD_BG,
+            boxShadow: CARD_SHADOW
+          }}
+        >
+          <h3
+            style={{
+              margin: "0 0 0.35rem",
+              fontSize: "0.95rem"
+            }}
+          >
+            Today&apos;s numbers
+          </h3>
+          {loadingRecap && (
+            <p
+              style={{
+                margin: 0,
+                fontSize: "0.85rem",
+                color: MUTED_TEXT
+              }}
+            >
+              Loading session details...
+            </p>
+          )}
+          {recapError && (
+            <p
+              style={{
+                margin: "0.25rem 0 0",
+                fontSize: "0.85rem",
+                color: "#f87171"
+              }}
+            >
+              {recapError}
+            </p>
+          )}
+          {!loadingRecap &&
+            !recapError &&
+            (!protocol || stepsWithValues.length === 0) && (
+              <p
+                style={{
+                  margin: 0,
+                  fontSize: "0.85rem",
+                  color: MUTED_TEXT
+                }}
+              >
+                This session doesn&apos;t track numeric metrics yet — we just
+                log that the work was completed.
+              </p>
+            )}
+          {!loadingRecap &&
+            !recapError &&
+            protocol &&
+            stepsWithValues.length > 0 && (
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "0.5rem",
+                  marginTop: "0.3rem"
+                }}
+              >
+                {stepsWithValues.map((step) => {
+                  const vals = valuesByStepId[step.id] ?? [];
+                  if (!vals.length) return null;
+
+                  const max = Math.max(...vals);
+                  const sum = vals.reduce((acc, v) => acc + v, 0);
+                  const avg = vals.length ? sum / vals.length : 0;
+
+                  const metricLabel =
+                    step.metric_label ?? step.title ?? "Value";
+                  const unit = step.unit ? ` ${step.unit}` : "";
+
+                  return (
+                    <div
+                      key={step.id}
+                      style={{
+                        padding: "0.5rem 0.55rem",
+                        borderRadius: "8px",
+                        border: `1px solid ${CARD_BORDER}`,
+                        background: "#020617"
+                      }}
+                    >
+                      <div
+                        style={{
+                          fontSize: "0.85rem",
+                          color: PRIMARY_TEXT,
+                          marginBottom: "0.1rem"
+                        }}
+                      >
+                        {metricLabel}
+                        {unit && (
+                          <span
+                            style={{
+                              fontSize: "0.75rem",
+                              color: MUTED_TEXT,
+                              marginLeft: 4
+                            }}
+                          >
+                            ({step.unit})
+                          </span>
+                        )}
+                      </div>
+                      <div
+                        style={{
+                          fontSize: "0.8rem",
+                          color: MUTED_TEXT
+                        }}
+                      >
+                        Max:{" "}
+                        <strong>
+                          {max.toFixed(1)}
+                          {unit}
+                        </strong>{" "}
+                        · Avg:{" "}
+                        <strong>
+                          {avg.toFixed(1)}
+                          {unit}
+                        </strong>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+        </section>
+
+        {/* Next sessions */}
+        <section
+          style={{
+            marginBottom: "0.9rem",
+            padding: "0.8rem 0.9rem",
+            borderRadius: "10px",
+            border: `1px solid ${CARD_BORDER}`,
+            background: CARD_BG,
+            boxShadow: CARD_SHADOW
+          }}
+        >
+          <h3
+            style={{
+              margin: "0 0 0.35rem",
+              fontSize: "0.95rem"
+            }}
+          >
+            Up next
+          </h3>
+          {nextSuggestions.length === 0 ? (
+            <p
+              style={{
+                margin: 0,
+                fontSize: "0.85rem",
+                color: MUTED_TEXT
+              }}
+            >
+              No other protocols to suggest right now. You can always head back
+              to your dashboard or My Program to pick what&apos;s next.
+            </p>
+          ) : (
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns:
+                  "repeat(auto-fit, minmax(220px, 1fr))",
+                gap: "0.75rem",
+                marginTop: "0.25rem"
+              }}
+            >
+              {nextSuggestions.map((p) => (
+                <div
+                  key={p.id}
+                  style={{
+                    borderRadius: "10px",
+                    border: `1px solid ${CARD_BORDER}`,
+                    background: CARD_BG,
+                    padding: "0.7rem 0.8rem",
+                    boxShadow: CARD_SHADOW,
+                    display: "flex",
+                    flexDirection: "column",
+                    justifyContent: "space-between",
+                    minHeight: 110
+                  }}
+                >
+                  <div>
+                    <div
+                      style={{
+                        fontSize: "0.75rem",
+                        color: MUTED_TEXT,
+                        textTransform: "uppercase",
+                        letterSpacing: "0.08em",
+                        marginBottom: "0.2rem"
+                      }}
+                    >
+                      {CATEGORY_LABELS[p.category as CategoryKey] ??
+                        p.category}
+                    </div>
+                    <div
+                      style={{
+                        fontSize: "0.9rem",
+                        color: PRIMARY_TEXT,
+                        fontWeight: 500
+                      }}
+                    >
+                      {p.title}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleStartForProtocol(p)}
+                    style={{
+                      marginTop: "0.5rem",
+                      padding: "0.45rem 0.8rem",
+                      borderRadius: "999px",
+                      border: `1px solid ${ACCENT}`,
+                      background: "transparent",
+                      color: ACCENT,
+                      cursor: "pointer",
+                      fontSize: "0.85rem",
+                      fontWeight: 600
+                    }}
+                  >
+                    Start this session
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+
+        {/* Navigation options */}
+        <div
+          style={{
+            display: "flex",
+            flexWrap: "wrap",
+            gap: "0.5rem",
+            marginTop: "0.25rem"
+          }}
+        >
+          <button
+            type="button"
+            onClick={onBack}
+            style={{
+              padding: "0.45rem 0.9rem",
+              borderRadius: "999px",
+              border: `1px solid ${CARD_BORDER}`,
+              background: "transparent",
+              color: PRIMARY_TEXT,
+              fontSize: "0.85rem",
+              cursor: "pointer"
+            }}
+          >
+            Back to dashboard
+          </button>
+          <button
+            type="button"
+            onClick={() =>
+              onViewStats ? onViewStats() : onBack()
+            }
+            style={{
+              padding: "0.45rem 0.9rem",
+              borderRadius: "999px",
+              border: "none",
+              background: "#1f2937",
+              color: PRIMARY_TEXT,
+              fontSize: "0.85rem",
+              cursor: "pointer"
+            }}
+          >
+            View my stats
+          </button>
+          <button
+            type="button"
+            onClick={() =>
+              onViewProgram ? onViewProgram() : onBack()
+            }
+            style={{
+              padding: "0.45rem 0.9rem",
+              borderRadius: "999px",
+              border: "none",
+              background: "#1f2937",
+              color: PRIMARY_TEXT,
+              fontSize: "0.85rem",
+              cursor: "pointer"
+            }}
+          >
+            View my program
+          </button>
+        </div>
       </section>
     );
   }
@@ -2136,7 +2732,9 @@ const StartSessionPage: React.FC<StartSessionPageProps> = ({
         ← Back to dashboard
       </button>
 
-      <h2 style={{ marginTop: 0, marginBottom: "0.25rem" }}>Start Session</h2>
+      <h2 style={{ marginTop: 0, marginBottom: "0.25rem" }}>
+        Start Session
+      </h2>
       <p
         style={{
           marginTop: 0,
@@ -2180,7 +2778,8 @@ const StartSessionPage: React.FC<StartSessionPageProps> = ({
               padding: "0.4rem 0.9rem",
               borderRadius: "999px",
               border: `1px solid ${CHIP_BORDER}`,
-              background: category === cat ? CHIP_ACTIVE_BG : CHIP_BG,
+              background:
+                category === cat ? CHIP_ACTIVE_BG : CHIP_BG,
               color: PRIMARY_TEXT,
               cursor: "pointer",
               fontSize: "0.85rem"

@@ -1,5 +1,6 @@
 // frontend/src/api/sessions.ts
 import { API_BASE_URL } from "./client";
+import type { Medal, PlayerMedal } from "./medals";
 
 export type SessionStatus = "in_progress" | "completed" | "aborted";
 
@@ -22,6 +23,31 @@ export interface SessionEntryInput {
   value_number?: number | null;
   value_text?: string | null;
   side?: string | null;
+}
+
+export interface SessionEntry {
+  id: string;
+  session_id: string;
+  protocol_step_id: string;
+  attempt_index: number | null;
+  value_number: number | null;
+  value_text: string | null;
+  side: string | null;
+  recorded_at: string;
+}
+
+export interface SessionWithEntries extends Session {
+  entries: SessionEntry[];
+}
+
+export interface SessionCompletionMedalAward {
+  medal: Medal;
+  player_medal: PlayerMedal;
+}
+
+export interface SessionCompletionResult {
+  session: Session;
+  newly_awarded_medals: SessionCompletionMedalAward[];
 }
 
 interface CreateSessionInput {
@@ -73,10 +99,13 @@ export async function addSessionEntries(
   }
 }
 
-export async function completeSession(
+/**
+ * New: full completion result including newly_awarded_medals.
+ */
+export async function completeSessionWithAwards(
   sessionId: string,
   notes?: string
-): Promise<Session> {
+): Promise<SessionCompletionResult> {
   const res = await fetch(`${API_BASE_URL}/sessions/${sessionId}/complete`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -87,6 +116,35 @@ export async function completeSession(
     const text = await res.text().catch(() => "");
     throw new Error(
       `Failed to complete session: ${res.status} ${text.slice(0, 200)}`
+    );
+  }
+
+  return res.json();
+}
+
+/**
+ * Backwards-compatible helper: still just returns the Session.
+ */
+export async function completeSession(
+  sessionId: string,
+  notes?: string
+): Promise<Session> {
+  const result = await completeSessionWithAwards(sessionId, notes);
+  return result.session;
+}
+
+/**
+ * Fetch a session and its entries for recap.
+ */
+export async function fetchSessionWithEntries(
+  sessionId: string
+): Promise<SessionWithEntries> {
+  const res = await fetch(`${API_BASE_URL}/sessions/${sessionId}`);
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(
+      `Failed to fetch session: ${res.status} ${text.slice(0, 200)}`
     );
   }
 

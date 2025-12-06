@@ -40,6 +40,8 @@ export interface Medal {
   is_active: boolean;
   created_at: string;
   updated_at: string;
+  // New: full public URL for the medal image (added by backend)
+  image_url?: string | null;
 }
 
 export interface PlayerMedal {
@@ -55,6 +57,10 @@ export interface PlayerMedal {
 export interface PlayerMedalsResponse {
   medals: Medal[];
   earned: PlayerMedal[];
+  // New: age group computed on the backend from profile.birthdate / softball
+  playerAgeGroup?: AgeGroup | null;
+  // New: whether this player is marked as a softball player
+  isSoftball?: boolean | null;
 }
 
 /**

@@ -9,6 +9,7 @@ export interface ProfileSummary {
   email: string | null;
   first_name: string | null;
   last_name: string | null;
+  birthdate?: string | null;
 }
 
 export async function fetchProfiles(role?: Role): Promise<ProfileSummary[]> {

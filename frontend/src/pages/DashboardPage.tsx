@@ -660,6 +660,19 @@ const DashboardPage: React.FC = () => {
 
   const displayName = fullName || currentProfile.email || "Player";
 
+  const selectedPlayerName =
+    selectedPlayer
+      ? (
+          `${selectedPlayer.first_name ?? ""} ${
+            selectedPlayer.last_name ?? ""
+          }`.trim() ||
+          selectedPlayer.email ||
+          "Selected player"
+        )
+      : null;
+
+  const selectedPlayerEmail = selectedPlayer?.email ?? null;
+  
   const tabs: { id: MainTab; label: string }[] = [
     { id: "dashboard", label: "Dashboard" },
     { id: "library", label: "Protocol Library" },
@@ -2969,6 +2982,9 @@ const DashboardPage: React.FC = () => {
             }}
           >
             Velo Sports
+            {isParent && selectedPlayerName && (
+              <span style={{ color: MUTED_TEXT }}> • Parent view</span>
+            )}
           </div>
           <h1
             style={{
@@ -2994,18 +3010,17 @@ const DashboardPage: React.FC = () => {
               ? "players, stats,"
               : "program, stats,"}{" "}
             and profile.
-            {isParent && selectedPlayer && (
+            {isParent && selectedPlayerName && (
               <>
                 {" "}
-                You&apos;re currently viewing the app as{" "}
+                You&apos;re currently viewing and editing as{" "}
                 <strong
                   style={{
                     color: DANGER,
                     fontWeight: 600
                   }}
                 >
-                  {selectedPlayer.first_name ?? ""}{" "}
-                  {selectedPlayer.last_name ?? ""}
+                  {selectedPlayerName}
                 </strong>
                 .
               </>
@@ -3017,9 +3032,56 @@ const DashboardPage: React.FC = () => {
             display: "flex",
             flexDirection: "column",
             alignItems: "flex-end",
-            gap: "0.4rem"
+            gap: "0.4rem",
+            minWidth: "0"
           }}
         >
+          {/* Selected player card for parents */}
+          {isParent && selectedPlayerName && (
+            <div
+              style={{
+                padding: "0.4rem 0.75rem",
+                borderRadius: "10px",
+                border: `1px solid ${CARD_BORDER}`,
+                background: CARD_BG,
+                maxWidth: "260px"
+              }}
+            >
+              <div
+                style={{
+                  fontSize: "0.7rem",
+                  textTransform: "uppercase",
+                  letterSpacing: "0.12em",
+                  color: MUTED_TEXT,
+                  marginBottom: "0.2rem"
+                }}
+              >
+                Viewing player
+              </div>
+              <div
+                style={{
+                  fontSize: "0.9rem",
+                  color: PRIMARY_TEXT,
+                  fontWeight: 600,
+                  marginBottom: selectedPlayerEmail ? "0.1rem" : 0
+                }}
+              >
+                {selectedPlayerName}
+              </div>
+              {selectedPlayerEmail && (
+                <div
+                  style={{
+                    fontSize: "0.8rem",
+                    color: MUTED_TEXT,
+                    wordBreak: "break-all"
+                  }}
+                >
+                  {selectedPlayerEmail}
+                </div>
+              )}
+            </div>
+          )}
+
           <div
             style={{
               padding: "0.3rem 0.75rem",
@@ -3049,6 +3111,7 @@ const DashboardPage: React.FC = () => {
           </button>
         </div>
       </header>
+
 
       {/* App-style nav tabs */}
       <nav

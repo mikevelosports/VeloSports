@@ -11,6 +11,20 @@ const CARD_BORDER = "rgba(148,163,184,0.4)";
 const CARD_SHADOW = "0 8px 20px rgba(0,0,0,0.35)";
 
 const POSITION_CHOICES = ["P", "C", "1B", "Infield", "Outfield"] as const;
+const TEAM_LEVEL_OPTIONS = [
+  "Rec",
+  "AA",
+  "AAA Travel",
+  "Majors Travel",
+  "High School",
+  "College",
+  "Pro"
+] as const;
+
+const REQUIRED_STAR_STYLE: React.CSSProperties = {
+  color: "#f97373",
+  marginLeft: 4
+};
 
 // --- Shared settings + legal cards (used by player/coach pages) ---
 
@@ -370,6 +384,8 @@ const LegalAndPrivacySection: React.FC = () => {
 
 // --- Player profile logic below ---
 
+type SportOption = "baseball" | "softball";
+
 interface FormState {
   phone: string;
   birthdate: string;
@@ -392,6 +408,7 @@ interface FormState {
   years_played: string;
   batting_avg_last_season: string;
   photo_url: string;
+  sport: SportOption;
 }
 
 interface TargetProfileHeader {
@@ -427,19 +444,17 @@ function kgToLbs(kg: number | null): string {
   return String(Math.round(kg * 2.20462));
 }
 
+// ✅ definition of "complete profile"
 function computeProfileCompleteFromForm(f: FormState): boolean {
   const hasBirthdate = !!f.birthdate;
-  const hasHeight = !!f.height_feet && !!f.height_inches;
-  const hasWeight = !!f.weight_lbs;
-  const hasPlayingLevel = !!f.playing_level;
-  const hasPositions = f.positions_played && f.positions_played.length > 0;
-  return (
-    hasBirthdate &&
-    hasHeight &&
-    hasWeight &&
-    hasPlayingLevel &&
-    hasPositions
-  );
+  const hasSport = !!f.sport;
+  const hasPositions =
+    Array.isArray(f.positions_played) && f.positions_played.length > 0;
+  const yearsPlayedNum = Number(f.years_played);
+  const hasYearsPlayed =
+    !Number.isNaN(yearsPlayedNum) && yearsPlayedNum > 0;
+
+  return hasBirthdate && hasSport && hasPositions && hasYearsPlayed;
 }
 
 const EMPTY_FORM: FormState = {
@@ -463,7 +478,8 @@ const EMPTY_FORM: FormState = {
   positions_played: [],
   years_played: "",
   batting_avg_last_season: "",
-  photo_url: ""
+  photo_url: "",
+  sport: "baseball"
 };
 
 interface ProfilePageProps {
@@ -563,11 +579,20 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ playerIdOverride }) => {
             p.batting_avg_last_season != null
               ? String(p.batting_avg_last_season)
               : "",
-          photo_url: p.photo_url ?? ""
+          photo_url: p.photo_url ?? "",
+          sport: p.softball ? "softball" : "baseball"
         };
 
         setForm(nextForm);
-        setProfileComplete(computeProfileCompleteFromForm(nextForm));
+
+        const computedComplete = computeProfileCompleteFromForm(nextForm);
+        const dbComplete =
+          typeof p.profile_complete === "boolean"
+            ? p.profile_complete
+            : computedComplete;
+
+        setProfileComplete(dbComplete);
+
         setTargetProfileHeader({
           first_name: p.first_name ?? null,
           last_name: p.last_name ?? null,
@@ -598,6 +623,28 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ playerIdOverride }) => {
       setError(null);
       setSuccess(null);
     };
+
+  // Handle file upload for profile photo (stores as data URL in photo_url)
+  const handlePhotoFileChange = (
+    e: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result;
+      if (typeof result === "string") {
+        setForm((prev) => ({
+          ...prev,
+          photo_url: result
+        }));
+        setError(null);
+        setSuccess(null);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
 
   const togglePosition = (pos: string) => {
     setForm((prev) => {
@@ -644,6 +691,9 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ playerIdOverride }) => {
         weight_kg = Math.round((lbsNum / 2.20462) * 10) / 10;
       }
 
+      // ✅ compute completion before building payload
+      const nowComplete = computeProfileCompleteFromForm(form);
+
       const payload = {
         phone: form.phone || null,
         birthdate: form.birthdate || null,
@@ -669,7 +719,9 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ playerIdOverride }) => {
         batting_avg_last_season: form.batting_avg_last_season
           ? Number(form.batting_avg_last_season)
           : null,
-        photo_url: form.photo_url || null
+        photo_url: form.photo_url || null,
+        softball: form.sport === "softball",
+        profile_complete: nowComplete // ✅ send to backend
       };
 
       const res = await fetch(
@@ -688,8 +740,14 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ playerIdOverride }) => {
         );
       }
 
-      const nowComplete = computeProfileCompleteFromForm(form);
-      setProfileComplete(nowComplete);
+      const updatedProfile = await res.json();
+
+      const profileCompleteFromServer =
+        typeof updatedProfile.profile_complete === "boolean"
+          ? updatedProfile.profile_complete
+          : nowComplete;
+
+      setProfileComplete(profileCompleteFromServer);
       setSuccess("Profile updated");
       setEditing(false);
     } catch (err: any) {
@@ -790,7 +848,7 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ playerIdOverride }) => {
   // === SUMMARY VIEW ===
   if (!editing) {
     const levelLabel =
-      form.playing_level || header?.playing_level || "Not set yet";
+      form.current_team_level || header?.playing_level || "Not set yet";
     const teamLabel =
       form.current_team || header?.current_team || "Not set yet";
     const positionsLabel =
@@ -1067,7 +1125,7 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ playerIdOverride }) => {
                   marginBottom: "0.2rem"
                 }}
               >
-                Baseball
+                Baseball / Softball
               </div>
               <div
                 style={{
@@ -1191,8 +1249,10 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ playerIdOverride }) => {
             color: MUTED_TEXT
           }}
         >
-          Fill these out so we can build a better <strong>My Program</strong>{" "}
-          and give coaches the right context.
+          Fields with
+          <span style={REQUIRED_STAR_STYLE}>*</span> are required to complete
+          your profile. Fill these out so we can build a better{" "}
+          <strong>My Program</strong> and give coaches the right context.
         </p>
 
         <form
@@ -1203,33 +1263,100 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ playerIdOverride }) => {
             gap: "1rem"
           }}
         >
-          {/* Photo URL */}
+          {/* Profile photo */}
           <div>
             <label
               style={{
                 display: "block",
                 fontSize: "0.8rem",
                 color: MUTED_TEXT,
-                marginBottom: "0.25rem"
+                marginBottom: "0.35rem"
               }}
             >
-              Photo URL
+              Profile photo
             </label>
-            <input
-              type="text"
-              value={form.photo_url}
-              onChange={handleChange("photo_url")}
-              placeholder="Paste a link to a profile photo"
+            <div
               style={{
-                width: "100%",
-                padding: "0.45rem 0.6rem",
-                borderRadius: "6px",
-                border: `1px solid ${CARD_BORDER}`,
-                background: "#020617",
-                color: PRIMARY_TEXT,
-                fontSize: "0.9rem"
+                display: "flex",
+                gap: "0.75rem",
+                alignItems: "center",
+                flexWrap: "wrap"
               }}
-            />
+            >
+              <div
+                style={{
+                  width: 64,
+                  height: 64,
+                  borderRadius: "999px",
+                  overflow: "hidden",
+                  border: `1px solid ${CARD_BORDER}`,
+                  background:
+                    "radial-gradient(circle at top, #1f2937 0, #020617 70%)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  flexShrink: 0
+                }}
+              >
+                {form.photo_url ? (
+                  <img
+                    src={form.photo_url}
+                    alt="Player avatar preview"
+                    style={{
+                      width: "100%",
+                      height: "100%",
+                      objectFit: "cover"
+                    }}
+                  />
+                ) : (
+                  <span
+                    style={{
+                      fontSize: "0.8rem",
+                      color: MUTED_TEXT
+                    }}
+                  >
+                    No photo
+                  </span>
+                )}
+              </div>
+              <div style={{ flex: 1, minWidth: 180 }}>
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={handlePhotoFileChange}
+                  style={{
+                    display: "block",
+                    marginBottom: "0.35rem",
+                    fontSize: "0.8rem",
+                    color: PRIMARY_TEXT
+                  }}
+                />
+                <div
+                  style={{
+                    fontSize: "0.75rem",
+                    color: MUTED_TEXT,
+                    marginBottom: "0.2rem"
+                  }}
+                >
+                  or paste an image URL:
+                </div>
+                <input
+                  type="text"
+                  value={form.photo_url}
+                  onChange={handleChange("photo_url")}
+                  placeholder="https://example.com/photo.jpg"
+                  style={{
+                    width: "100%",
+                    padding: "0.45rem 0.6rem",
+                    borderRadius: "6px",
+                    border: `1px solid ${CARD_BORDER}`,
+                    background: "#020617",
+                    color: PRIMARY_TEXT,
+                    fontSize: "0.9rem"
+                  }}
+                />
+              </div>
+            </div>
           </div>
 
           {/* Basic info */}
@@ -1278,6 +1405,7 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ playerIdOverride }) => {
                 }}
               >
                 Birthdate
+                <span style={REQUIRED_STAR_STYLE}>*</span>
               </label>
               <input
                 type="date"
@@ -1585,7 +1713,7 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ playerIdOverride }) => {
             </div>
           </div>
 
-          {/* Baseball info */}
+          {/* More details: sport, team, team level, jersey */}
           <div>
             <h3
               style={{
@@ -1594,7 +1722,7 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ playerIdOverride }) => {
                 color: PRIMARY_TEXT
               }}
             >
-              Baseball Info
+              More Details
             </h3>
             <div
               style={{
@@ -1603,6 +1731,35 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ playerIdOverride }) => {
                 gap: "0.75rem"
               }}
             >
+              <div>
+                <label
+                  style={{
+                    display: "block",
+                    fontSize: "0.8rem",
+                    color: MUTED_TEXT,
+                    marginBottom: "0.25rem"
+                  }}
+                >
+                  Sport
+                  <span style={REQUIRED_STAR_STYLE}>*</span>
+                </label>
+                <select
+                  value={form.sport}
+                  onChange={handleChange("sport")}
+                  style={{
+                    width: "100%",
+                    padding: "0.45rem 0.6rem",
+                    borderRadius: "6px",
+                    border: `1px solid ${CARD_BORDER}`,
+                    background: "#020617",
+                    color: PRIMARY_TEXT,
+                    fontSize: "0.9rem"
+                  }}
+                >
+                  <option value="baseball">Baseball</option>
+                  <option value="softball">Softball</option>
+                </select>
+              </div>
               <div>
                 <label
                   style={{
@@ -1641,11 +1798,9 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ playerIdOverride }) => {
                 >
                   Current team level
                 </label>
-                <input
-                  type="text"
+                <select
                   value={form.current_team_level}
                   onChange={handleChange("current_team_level")}
-                  placeholder="AA, AAA, travel, etc."
                   style={{
                     width: "100%",
                     padding: "0.45rem 0.6rem",
@@ -1654,35 +1809,15 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ playerIdOverride }) => {
                     background: "#020617",
                     color: PRIMARY_TEXT,
                     fontSize: "0.9rem"
-                  }}
-                />
-              </div>
-              <div>
-                <label
-                  style={{
-                    display: "block",
-                    fontSize: "0.8rem",
-                    color: MUTED_TEXT,
-                    marginBottom: "0.25rem"
                   }}
                 >
-                  Overall playing level
-                </label>
-                <input
-                  type="text"
-                  value={form.playing_level}
-                  onChange={handleChange("playing_level")}
-                  placeholder="rec, HS, college, pro..."
-                  style={{
-                    width: "100%",
-                    padding: "0.45rem 0.6rem",
-                    borderRadius: "6px",
-                    border: `1px solid ${CARD_BORDER}`,
-                    background: "#020617",
-                    color: PRIMARY_TEXT,
-                    fontSize: "0.9rem"
-                  }}
-                />
+                  <option value="">Select team level</option>
+                  {TEAM_LEVEL_OPTIONS.map((level) => (
+                    <option key={level} value={level}>
+                      {level}
+                    </option>
+                  ))}
+                </select>
               </div>
               <div>
                 <label
@@ -1827,6 +1962,7 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ playerIdOverride }) => {
                   }}
                 >
                   Positions played
+                  <span style={REQUIRED_STAR_STYLE}>*</span>
                 </label>
                 <div
                   style={{
@@ -1870,6 +2006,7 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ playerIdOverride }) => {
                   }}
                 >
                   Years played
+                  <span style={REQUIRED_STAR_STYLE}>*</span>
                 </label>
                 <input
                   type="number"
