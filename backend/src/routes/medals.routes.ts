@@ -130,6 +130,488 @@ function attachImageUrl(medals: any[] | null) {
 
 type ComparisonKind = "event" | "boolean" | "numeric";
 
+// ---- Medal metrics snapshot (player_medal_metrics) ------------------------
+
+type VeloConfigKey = "base_bat" | "green_sleeve" | "full_loaded";
+type SwingSide = "dominant" | "non_dominant";
+
+interface SessionSummaryRow {
+  session_id: string;
+  player_id: string;
+  protocol_id: string;
+  started_at: string;
+  completed_at: string | null;
+  status: string;
+  protocol_title: string | null;
+  protocol_category: string | null;
+}
+
+interface MetricRow {
+  entry_id: string | null;
+  session_id: string | null;
+  player_id: string | null;
+  value_number: number | string | null;
+  recorded_at: string | null;
+  session_started_at: string | null;
+  session_completed_at: string | null;
+  session_status: string | null;
+  protocol_id: string | null;
+  protocol_title: string | null;
+  protocol_category: string | null;
+  protocol_step_id: string | null;
+  step_title: string | null;
+  metric_key: string | null;
+  velo_config: string | null;
+  swing_type: string | null;
+}
+
+interface GainStat {
+  baselineMph: number;
+  currentMph: number;
+  deltaMph: number;
+  deltaPercent: number;
+}
+
+interface PlayerMedalMetricsRow {
+  player_id: string;
+
+  session_count: number;
+  overspeed_session_count: number;
+  counterweight_session_count: number;
+  power_mechanics_session_count: number;
+  exit_velo_application_session_count: number;
+  warm_up_session_count: number;
+  assessments_session_count: number;
+
+  ground_force_1_session_count: number;
+  ground_force_2_session_count: number;
+  ground_force_3_session_count: number;
+
+  sequencing_1_session_count: number;
+  sequencing_2_session_count: number;
+  sequencing_3_session_count: number;
+
+  exit_velo_application_1_session_count: number;
+  exit_velo_application_2_session_count: number;
+  exit_velo_application_3_session_count: number;
+
+  bat_delivery_session_count: number;
+  dynamic_session_count: number;
+
+  exit_velo_percent_gain: number | null;
+  bat_speed_percent_gain: number | null;
+
+  velo_bat_base_bat_percent_above_game_bat: number | null;
+  velo_bat_green_sleeve_percent_above_game_bat: number | null;
+  velo_bat_fl_percent_above_game_bat: number | null;
+
+  created_at?: string;
+  updated_at?: string;
+}
+
+// --- Helpers copied from stats.routes.ts (kept local so stats & medals stay in sync) ---
+
+function toNumber(value: number | string | null): number | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "number") {
+    if (Number.isFinite(value)) return value;
+    return null;
+  }
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+function isBatSpeedMetric(metricKey: string | null): boolean {
+  if (!metricKey) return false;
+  const k = metricKey.toLowerCase();
+  if (k === "bat_speed" || k === "max_bat_speed") return true;
+  if (k.includes("bat") && k.includes("speed")) return true;
+  return false;
+}
+
+function isExitVeloMetric(metricKey: string | null): boolean {
+  if (!metricKey) return false;
+  const k = metricKey.toLowerCase();
+  if (k === "exit_velo" || k === "exit_velocity") return true;
+  if (k.includes("exit") && (k.includes("velo") || k.includes("velocity"))) {
+    return true;
+  }
+  return false;
+}
+
+function normalizeVeloConfig(
+  raw: string | null
+): VeloConfigKey | "game_bat" | null {
+  if (!raw) return null;
+  const v = raw.toLowerCase().trim();
+  if (v === "base_bat") return "base_bat";
+  if (v === "green_sleeve" || v === "green-sleeve" || v === "greensleeve") {
+    return "green_sleeve";
+  }
+  if (v === "full_loaded" || v === "fully_loaded" || v === "full-load") {
+    return "full_loaded";
+  }
+  if (v === "game_bat" || v === "gamebat") return "game_bat";
+  return null;
+}
+
+function normalizeSwingSide(raw: string | null): SwingSide | null {
+  if (!raw) return null;
+  const v = raw.toLowerCase().trim();
+  if (v === "dominant") return "dominant";
+  if (v === "non_dominant" || v === "non-dominant") return "non_dominant";
+  return null;
+}
+
+function maxOf(values: number[]): number | null {
+  if (!values.length) return null;
+  return values.reduce((max, v) => (v > max ? v : max), values[0]);
+}
+
+function computeGain(valuesChrono: number[]): GainStat | null {
+  if (valuesChrono.length < 2) return null;
+  const baseline = valuesChrono[0];
+  const current = valuesChrono[valuesChrono.length - 1];
+  if (!baseline || baseline <= 0) return null;
+  const deltaMph = current - baseline;
+  const deltaPercent = (deltaMph / baseline) * 100;
+  return {
+    baselineMph: baseline,
+    currentMph: current,
+    deltaMph,
+    deltaPercent
+  };
+}
+
+const parseLevelFromTitle = (title: string | null): number | null => {
+  if (!title) return null;
+  const m = title.toLowerCase().match(/level\s*([1-5])/);
+  if (!m) return null;
+  const lvl = parseInt(m[1], 10);
+  return Number.isFinite(lvl) ? lvl : null;
+};
+
+/**
+ * Recompute a full medal-metrics snapshot for a player from:
+ *  - session_protocol_summaries (completed sessions)
+ *  - player_swing_metrics (swing metrics)
+ *
+ * Then upsert into player_medal_metrics and return the row.
+ */
+async function recomputePlayerMedalMetrics(
+  playerId: string
+): Promise<PlayerMedalMetricsRow | null> {
+  // 1) Load sessions for this player
+  const { data: sessions, error: sessionsError } = await supabaseAdmin
+    .from("session_protocol_summaries")
+    .select(
+      "session_id, player_id, protocol_id, started_at, completed_at, status, protocol_title, protocol_category"
+    )
+    .eq("player_id", playerId);
+
+  if (sessionsError) {
+    throw sessionsError;
+  }
+
+  const sessionRows: SessionSummaryRow[] = (sessions ?? []) as any;
+
+  // 2) Load metric entries for this player
+  const { data: metrics, error: metricsError } = await supabaseAdmin
+    .from("player_swing_metrics")
+    .select(
+      "entry_id, session_id, player_id, value_number, recorded_at, session_started_at, session_completed_at, session_status, protocol_id, protocol_title, protocol_category, protocol_step_id, step_title, metric_key, velo_config, swing_type"
+    )
+    .eq("player_id", playerId);
+
+  if (metricsError) {
+    throw metricsError;
+  }
+
+  const metricRows: MetricRow[] = (metrics ?? []) as any;
+
+  // ---- Completed sessions & metrics ----
+
+  const completedSessions = sessionRows.filter(
+    (s) => s.status === "completed"
+  );
+  const completedSessionIds = new Set(
+    completedSessions.map((s) => s.session_id)
+  );
+  const completedMetrics = metricRows.filter((m) => {
+    if (!m.session_id) return false;
+    return completedSessionIds.has(m.session_id);
+  });
+
+  // ---- High-level session counts ----
+
+  let session_count = completedSessions.length;
+  let overspeed_session_count = 0;
+  let counterweight_session_count = 0;
+  let power_mechanics_session_count = 0;
+  let exit_velo_application_session_count = 0;
+  let warm_up_session_count = 0;
+  let assessments_session_count = 0;
+
+  for (const s of completedSessions) {
+    const cat = (s.protocol_category || "").toLowerCase();
+    if (cat === "overspeed") overspeed_session_count++;
+    else if (cat === "counterweight") counterweight_session_count++;
+    else if (cat === "power_mechanics") power_mechanics_session_count++;
+    else if (cat === "exit_velo_application")
+      exit_velo_application_session_count++;
+    else if (cat === "warm_up") warm_up_session_count++;
+    else if (cat === "assessments") assessments_session_count++;
+  }
+
+  // ---- Level-based mechanics & exit velo counts ----
+
+  let ground_force_1_session_count = 0;
+  let ground_force_2_session_count = 0;
+  let ground_force_3_session_count = 0;
+
+  let sequencing_1_session_count = 0;
+  let sequencing_2_session_count = 0;
+  let sequencing_3_session_count = 0;
+
+  let exit_velo_application_1_session_count = 0;
+  let exit_velo_application_2_session_count = 0;
+  let exit_velo_application_3_session_count = 0;
+
+  let bat_delivery_session_count = 0;
+  let dynamic_session_count = 0;
+
+  for (const s of completedSessions) {
+    const cat = (s.protocol_category || "").toLowerCase();
+    const title = (s.protocol_title || "").toLowerCase();
+    const level = parseLevelFromTitle(s.protocol_title);
+
+    if (cat === "power_mechanics") {
+      if (title.includes("ground force")) {
+        if (level === 1) ground_force_1_session_count++;
+        else if (level === 2) ground_force_2_session_count++;
+        else if (level === 3) ground_force_3_session_count++;
+      } else if (title.includes("sequencing")) {
+        if (level === 1) sequencing_1_session_count++;
+        else if (level === 2) sequencing_2_session_count++;
+        else if (level === 3) sequencing_3_session_count++;
+      } else if (title.includes("bat delivery")) {
+        bat_delivery_session_count++;
+      } else if (title.includes("dynamic")) {
+        dynamic_session_count++;
+      }
+    } else if (cat === "exit_velo_application") {
+      if (level === 1) exit_velo_application_1_session_count++;
+      else if (level === 2) exit_velo_application_2_session_count++;
+      else if (level === 3) exit_velo_application_3_session_count++;
+    }
+  }
+
+  // ---- Gains & PBs (GAME BAT assessments only) ----
+
+  const assessmentGameBatMetrics = completedMetrics.filter((m) => {
+    const cat = (m.protocol_category || "").toLowerCase();
+    if (cat !== "assessments") return false;
+    const cfg = normalizeVeloConfig(m.velo_config);
+    if (cfg !== "game_bat") return false;
+    return isBatSpeedMetric(m.metric_key) || isExitVeloMetric(m.metric_key);
+  });
+
+  const gameBatBatSpeeds: number[] = [];
+  const gameBatExitVelos: number[] = [];
+
+  type AssessmentSessionAgg = {
+    sessionId: string;
+    date: string;
+    batSpeedMph: number | null;
+    exitVeloMph: number | null;
+  };
+
+  const assessmentBySession = new Map<string, AssessmentSessionAgg>();
+
+  for (const m of assessmentGameBatMetrics) {
+    const sessionId = m.session_id;
+    if (!sessionId) continue;
+
+    const v = toNumber(m.value_number);
+    if (v == null) continue;
+
+    const sessionDateRaw =
+      m.session_completed_at ||
+      m.session_started_at ||
+      m.recorded_at ||
+      "";
+    const date = sessionDateRaw ? sessionDateRaw.slice(0, 10) : "";
+
+    let bucket = assessmentBySession.get(sessionId);
+    if (!bucket) {
+      bucket = {
+        sessionId,
+        date,
+        batSpeedMph: null,
+        exitVeloMph: null
+      };
+      assessmentBySession.set(sessionId, bucket);
+    }
+
+    if (isBatSpeedMetric(m.metric_key)) {
+      gameBatBatSpeeds.push(v);
+      if (bucket.batSpeedMph == null || v > bucket.batSpeedMph) {
+        bucket.batSpeedMph = v;
+      }
+    } else if (isExitVeloMetric(m.metric_key)) {
+      gameBatExitVelos.push(v);
+      if (bucket.exitVeloMph == null || v > bucket.exitVeloMph) {
+        bucket.exitVeloMph = v;
+      }
+    }
+  }
+
+  const topBatSpeed = maxOf(gameBatBatSpeeds);
+  const topExitVelo = maxOf(gameBatExitVelos);
+
+  const assessmentSessions = Array.from(assessmentBySession.values()).sort(
+    (a, b) => a.date.localeCompare(b.date)
+  );
+
+  const batSpeedSeries: number[] = assessmentSessions
+    .map((s) => s.batSpeedMph)
+    .filter((v): v is number => v != null);
+
+  const exitVeloSeries: number[] = assessmentSessions
+    .map((s) => s.exitVeloMph)
+    .filter((v): v is number => v != null);
+
+  const batSpeedGain = computeGain(batSpeedSeries);
+  const exitVeloGain = computeGain(exitVeloSeries);
+
+  const exit_velo_percent_gain = exitVeloGain
+    ? exitVeloGain.deltaPercent
+    : null;
+  const bat_speed_percent_gain = batSpeedGain
+    ? batSpeedGain.deltaPercent
+    : null;
+
+  // ---- Velo bat PBs by config/side (overspeed + counterweight, non-game configs) ----
+
+  const configBySide: Record<
+    VeloConfigKey,
+    Record<SwingSide, { bestBatSpeedMph: number | null }>
+  > = {
+    base_bat: {
+      dominant: { bestBatSpeedMph: null },
+      non_dominant: { bestBatSpeedMph: null }
+    },
+    green_sleeve: {
+      dominant: { bestBatSpeedMph: null },
+      non_dominant: { bestBatSpeedMph: null }
+    },
+    full_loaded: {
+      dominant: { bestBatSpeedMph: null },
+      non_dominant: { bestBatSpeedMph: null }
+    }
+  };
+
+  const veloMetrics = completedMetrics.filter((m) => {
+    const cat = (m.protocol_category || "").toLowerCase();
+    if (cat !== "overspeed" && cat !== "counterweight") return false;
+    const cfgNorm = normalizeVeloConfig(m.velo_config);
+    if (!cfgNorm || cfgNorm === "game_bat") return false;
+    return isBatSpeedMetric(m.metric_key);
+  });
+
+  for (const m of veloMetrics) {
+    const cfgNorm = normalizeVeloConfig(m.velo_config);
+    if (!cfgNorm || cfgNorm === "game_bat") continue;
+    const cfg = cfgNorm as VeloConfigKey;
+
+    const side = normalizeSwingSide(m.swing_type);
+    if (!side) continue;
+
+    const v = toNumber(m.value_number);
+    if (v == null) continue;
+
+    const prev = configBySide[cfg][side].bestBatSpeedMph;
+    if (prev == null || v > prev) {
+      configBySide[cfg][side].bestBatSpeedMph = v;
+    }
+  }
+
+  const gameBatPb = topBatSpeed;
+  const baseBatPb = configBySide.base_bat.dominant.bestBatSpeedMph;
+  const greenPb = configBySide.green_sleeve.dominant.bestBatSpeedMph;
+  const fullPb = configBySide.full_loaded.dominant.bestBatSpeedMph;
+
+  const percentAbove = (
+    velo: number | null,
+    game: number | null
+  ): number | null => {
+    if (velo == null || game == null || game <= 0) return null;
+    return ((velo - game) / game) * 100;
+  };
+
+  const velo_bat_base_bat_percent_above_game_bat = percentAbove(
+    baseBatPb,
+    gameBatPb
+  );
+  const velo_bat_green_sleeve_percent_above_game_bat = percentAbove(
+    greenPb,
+    gameBatPb
+  );
+  const velo_bat_fl_percent_above_game_bat = percentAbove(fullPb, gameBatPb);
+
+  const metricsRow: PlayerMedalMetricsRow = {
+    player_id: playerId,
+
+    session_count,
+    overspeed_session_count,
+    counterweight_session_count,
+    power_mechanics_session_count,
+    exit_velo_application_session_count,
+    warm_up_session_count,
+    assessments_session_count,
+
+    ground_force_1_session_count,
+    ground_force_2_session_count,
+    ground_force_3_session_count,
+
+    sequencing_1_session_count,
+    sequencing_2_session_count,
+    sequencing_3_session_count,
+
+    exit_velo_application_1_session_count,
+    exit_velo_application_2_session_count,
+    exit_velo_application_3_session_count,
+
+    bat_delivery_session_count,
+    dynamic_session_count,
+
+    exit_velo_percent_gain,
+    bat_speed_percent_gain,
+    velo_bat_base_bat_percent_above_game_bat,
+    velo_bat_green_sleeve_percent_above_game_bat,
+    velo_bat_fl_percent_above_game_bat
+  };
+
+  const { data, error } = await supabaseAdmin
+    .from("player_medal_metrics")
+    .upsert(
+      {
+        ...metricsRow,
+        updated_at: new Date().toISOString()
+      },
+      { onConflict: "player_id" }
+    )
+    .select("*")
+    .single();
+
+  if (error) {
+    throw error;
+  }
+
+  return data as PlayerMedalMetricsRow;
+}
+
+
 function normalize(thresholdTypeRaw: string | null): string {
   return (thresholdTypeRaw || "").toLowerCase();
 }
@@ -359,24 +841,37 @@ export async function awardMedalsForPlayerEvents(opts: {
     metrics["profile_complete"] = !!profile.profile_complete;
   }
 
-  // Pull ALL program state columns so we can support a bunch of different
-  // threshold_type values without hardcoding every column name here.
-  const { data: programRows, error: programError } = await supabaseAdmin
-    .from("player_program_state")
-    .select("*")
-    .eq("player_id", playerId)
-    .limit(1);
+  // Recompute & load medal metrics snapshot for this player.
+  // This writes into player_medal_metrics and uses that row as the source of truth.
+  let medalMetrics: PlayerMedalMetricsRow | null = null;
+  try {
+    medalMetrics = await recomputePlayerMedalMetrics(playerId);
+  } catch (metricsErr) {
+    console.error(
+      "[medals] Failed to recompute player_medal_metrics for player",
+      playerId,
+      metricsErr
+    );
+  }
 
-  if (programError) throw programError;
-
-  if (programRows && programRows.length > 0) {
-    const ps = programRows[0] as any;
-    for (const [key, value] of Object.entries(ps)) {
-      if (key === "player_id") continue;
+  if (medalMetrics) {
+    for (const [key, value] of Object.entries(medalMetrics)) {
+      if (key === "player_id" || key === "created_at" || key === "updated_at") {
+        continue;
+      }
       if (value === null || value === undefined) continue;
-      metrics[key.toLowerCase()] = value as number | boolean;
+
+      if (typeof value === "boolean") {
+        metrics[key.toLowerCase()] = value;
+      } else {
+        const n = Number(value);
+        if (!Number.isNaN(n) && Number.isFinite(n)) {
+          metrics[key.toLowerCase()] = n;
+        }
+      }
     }
   }
+
 
   const nowIso = new Date().toISOString();
   const toInsert: PlayerMedalRow[] = [];

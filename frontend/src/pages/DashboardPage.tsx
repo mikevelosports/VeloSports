@@ -20,6 +20,25 @@ import { API_BASE_URL } from "../api/client";
 import { fetchTeamsForProfile, fetchTeamDetail, leaveTeam } from "../api/teams";
 import type { TeamSummary, TeamDetail, TeamMember } from "../api/teams";
 
+import {
+  generateProgramSchedule,
+  type ProgramConfig,
+  type ProgramState
+} from "../program/programEngine";
+
+import {
+  fetchPlayerProgramState,
+  mapProgramStateRowToEngineState,
+  type PlayerProgramStateRow
+} from "../api/programState";
+
+
+import {
+  fetchPlayerMedals,
+  type PlayerMedalsResponse,
+  type Medal,
+  type PlayerMedal
+} from "../api/medals";
 
 const PRIMARY_TEXT = "#e5e7eb";
 const MUTED_TEXT = "#9ca3af";
@@ -86,56 +105,109 @@ async function fetchPlayerStatsSummary(
 }
 
 /**
- * Fetch the first upcoming program session for a player.
- * This expects a backend endpoint like:
- *   GET /players/:playerId/upcoming-sessions?limit=1
- * returning { sessions: [...] }.
- * You can adapt the mapping below to your actual response shape.
+ * Compute the first upcoming training *day* for a player using the
+ * same schedule engine that MyProgramPage uses, then compress it
+ * into a small summary for the dashboard "Next Training Session" card.
  */
 async function fetchNextUpcomingSessionForPlayer(
   playerId: string
 ): Promise<UpcomingSessionSummary | null> {
-  const res = await fetch(
-    `${API_BASE_URL}/players/${playerId}/upcoming-sessions?limit=1`
-  );
-  if (res.status === 404) {
+  try {
+    // 1) Load program state row (phase, counters, etc.)
+    const row: PlayerProgramStateRow | null =
+      await fetchPlayerProgramState(playerId);
+
+    if (!row) {
+      // No program yet for this player
+      return null;
+    }
+
+    const programStartDate = row.program_start_date ?? todayIso();
+
+    // 2) Convert DB row -> ProgramState for the engine
+    const engineState = mapProgramStateRowToEngineState(
+      row,
+      programStartDate
+    );
+
+    // 3) Build a ProgramConfig.
+    //
+    // For now we mirror the defaults from MyProgramPage.
+    // If/when you persist program settings (age, inSeason, trainingDays, etc.)
+    // you can swap these defaults out for the real saved values.
+    const config: ProgramConfig = {
+      age: 14,
+      inSeason: false,
+      gameDays: [],
+      trainingDays: ["mon", "wed", "fri"],
+      desiredSessionsPerWeek: 3,
+      desiredSessionMinutes: 45,
+      programStartDate,
+      horizonWeeks: 2,
+      hasSpaceToHitBalls: true
+    };
+
+    // 4) Generate the 2‑week schedule and flatten to days
+    const schedule = generateProgramSchedule(config, engineState);
+    const allDays = schedule.weeks
+      .flatMap((w) => w.days)
+      .sort((a, b) => a.date.localeCompare(b.date));
+
+    // 5) Apply the same filter as MyProgramPage's upcomingSessions:
+    //    training days, with at least one block, today or later.
+    const today = todayIso();
+    const upcomingDays = allDays.filter(
+      (d) => d.isTrainingDay && d.blocks.length > 0 && d.date >= today
+    );
+
+    const nextDay = upcomingDays[0];
+    if (!nextDay) {
+      return null;
+    }
+
+    // 6) Derive a "Day N" number relative to program start (optional)
+    const dayIndexFromStart = diffDaysLocal(nextDay.date, programStartDate);
+    const dayNumber =
+      Number.isFinite(dayIndexFromStart) && dayIndexFromStart >= 0
+        ? dayIndexFromStart + 1
+        : undefined;
+
+    const phaseName = phaseLabel(engineState.currentPhase);
+
+    // 7) Build a short label from the primary block, just like the
+    //     Upcoming Sessions card does with abbreviations.
+    let label = "Upcoming training";
+    if (nextDay.blocks.length > 0) {
+      const primary = nextDay.blocks[0];
+      const abbr = protocolAbbreviation(primary.protocolTitle);
+      label =
+        nextDay.blocks.length > 1
+          ? `${abbr} +${nextDay.blocks.length - 1}`
+          : abbr;
+    }
+
+    const dayLabel =
+      dayNumber && dayNumber > 0 ? `Day ${dayNumber}` : undefined;
+
+    const subLabel =
+      phaseName && dayLabel
+        ? `${phaseName} • ${dayLabel}`
+        : phaseName || dayLabel;
+
+    // 8) Return the compact summary the dashboard card expects
+    return {
+      id: `${playerId}-${nextDay.date}`,
+      label,
+      subLabel,
+      scheduledFor: nextDay.date
+    };
+  } catch (err) {
+    // If anything goes wrong, just fall back to "no upcoming session"
+    console.error("Failed to compute next upcoming session", err);
     return null;
   }
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(
-      `Failed to load upcoming sessions: ${res.status} ${text.slice(0, 200)}`
-    );
-  }
-  const data = await res.json();
-  const first = data?.sessions?.[0];
-  if (!first) return null;
-
-  const dayNumber: number | undefined =
-    typeof first.dayNumber === "number" ? first.dayNumber : undefined;
-  const phaseName: string | undefined = first.phaseName ?? first.phase ?? undefined;
-  const title: string | undefined = first.title ?? first.label ?? undefined;
-
-  const dayLabel =
-    dayNumber && dayNumber > 0 ? `Day ${dayNumber}` : undefined;
-  const subLabel =
-    phaseName && dayLabel ? `${phaseName} • ${dayLabel}` : phaseName || dayLabel;
-
-  const label =
-    title ??
-    subLabel ??
-    "Upcoming training";
-
-  const scheduledFor: string | undefined =
-    first.scheduledFor ?? first.date ?? first.scheduled_at ?? undefined;
-
-  return {
-    id: first.id ?? `${playerId}-next-session`,
-    label,
-    subLabel,
-    scheduledFor
-  };
 }
+
 
 interface CoachTeamMetrics {
   teamId: string;
@@ -146,6 +218,548 @@ interface CoachTeamMetrics {
   sessionsLast30d: number;
   avgBatSpeedGainPct: number | null;
 }
+
+/* ------------------------------------------------------------------ */
+/* Medal helpers + RecentMedalsCard for dashboard                     */
+/* ------------------------------------------------------------------ */
+
+const MEDAL_TIER_COLORS: Record<string, string> = {
+  bronze: "#b45309",
+  silver: "#9ca3af",
+  gold: "#eab308",
+  velo: "#22c55e",
+  plat: "#38bdf8",
+  standard: "#f97316"
+};
+
+interface HumanizedMedalCopy {
+  name: string;
+  earnText: string;
+  earnedText: string;
+}
+
+function toTitleCaseFromSnake(input: string): string {
+  return input
+    .split(/[_\s]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function getMedalTierColor(tier: string | null | undefined): string {
+  if (!tier) return "#64748b";
+  const key = tier.toLowerCase();
+  return MEDAL_TIER_COLORS[key] ?? "#64748b";
+}
+
+/**
+ * Same humanization logic as StatsPage so names/descriptions stay consistent.
+ */
+function humanizeMedal(medal: Medal): HumanizedMedalCopy {
+  const category = medal.category;
+  const badge = medal.badge_name;
+  const thresholdValueRaw = medal.threshold_value;
+  const thresholdValue =
+    typeof thresholdValueRaw === "number"
+      ? thresholdValueRaw
+      : thresholdValueRaw != null
+      ? Number(thresholdValueRaw)
+      : NaN;
+
+  // GENERAL: N_sessions, first_session
+  if (category === "general") {
+    if (badge === "first_session") {
+      const name = "First Session";
+      const earnText =
+        "Earn this badge for completing your very first training session of any type.";
+      const earnedText =
+        "You earned this badge for completing your very first training session of any type.";
+      return { name, earnText, earnedText };
+    }
+
+    const sessionsMatch = badge.match(/^(\d+)_sessions$/);
+    if (sessionsMatch) {
+      const sessions = Number(sessionsMatch[1]);
+      const name = `${sessions} Sessions`;
+      const earnText = `Earn this badge for completing ${sessions} protocols of any type.`;
+      const earnedText = `You earned this badge for completing a total of ${sessions} sessions of any type.`;
+      return { name, earnText, earnedText };
+    }
+  }
+
+  // OVERSPEED: primary/ramp_up/maintenance + phase from threshold_text
+  if (category === "overspeed") {
+    const cycle =
+      badge === "primary"
+        ? "Primary"
+        : badge === "ramp_up"
+        ? "Ramp Up"
+        : badge === "maintenance"
+        ? "Maintenance"
+        : toTitleCaseFromSnake(badge);
+
+    const phaseMatch = medal.threshold_text?.match(/_(\d+)_complete$/);
+    const phaseNumber = phaseMatch ? Number(phaseMatch[1]) : undefined;
+    const phaseLabel =
+      phaseNumber != null ? `Phase ${phaseNumber}` : "a phase";
+
+    const name =
+      phaseNumber != null
+        ? `Overspeed ${cycle} ${phaseLabel} Complete`
+        : `Overspeed ${cycle} Cycle Complete`;
+
+    const base = `your ${cycle} Overspeed training`;
+    const earnText = `Earn this badge for completing ${phaseLabel} of ${base}.`;
+    const earnedText = `You earned this badge for completing ${phaseLabel} of ${base}.`;
+    return { name, earnText, earnedText };
+  }
+
+  // COUNTERWEIGHT: N_sessions
+  if (category === "counterweight") {
+    const match = badge.match(/^(\d+)_sessions$/);
+    if (match) {
+      const sessions =
+        Number(match[1]) || (Number.isFinite(thresholdValue) ? thresholdValue : 0);
+      const name = `Counterweight Training ${sessions} Sessions Complete`;
+      const earnText = `Earn this badge for completing ${sessions} counterweight training sessions.`;
+      const earnedText = `You earned this badge for completing ${sessions} counterweight training sessions.`;
+      return { name, earnText, earnedText };
+    }
+  }
+
+  // MECHANICS: gforce_10, lat_20, vforce_50, seq_10, ldl_20, swing_50, ...
+  if (category === "mechanics") {
+    const [token, sessionsStr] = badge.split("_");
+    const sessions =
+      Number(sessionsStr) || (Number.isFinite(thresholdValue) ? thresholdValue : 0);
+
+    const map: Record<
+      string,
+      { titleBase: string; descriptionBase: string }
+    > = {
+      gforce: {
+        titleBase: "Ground Force Level 1",
+        descriptionBase: "our Ground Force Level 1 protocol"
+      },
+      lat: {
+        titleBase: "Ground Force Level 2",
+        descriptionBase: "our Ground Force Level 2 protocol"
+      },
+      vforce: {
+        titleBase: "Ground Force Level 3",
+        descriptionBase: "our Ground Force Level 3 protocol"
+      },
+      seq: {
+        titleBase: "Sequencing Level 1",
+        descriptionBase: "our Sequencing Level 1 protocol"
+      },
+      ldl: {
+        titleBase: "Sequencing Level 2",
+        descriptionBase: "our Sequencing Level 2 protocol"
+      },
+      swing: {
+        titleBase: "Bat Delivery",
+        descriptionBase: "our bat delivery mechanics protocol"
+      }
+    };
+
+    const entry = map[token];
+    if (entry && sessions) {
+      const name = `${entry.titleBase} - ${sessions} sessions complete`;
+      const earnText = `Earn this badge for completing ${sessions} sessions of ${entry.descriptionBase}.`;
+      const earnedText = `You earned this badge for completing ${sessions} sessions of ${entry.descriptionBase}.`;
+      return { name, earnText, earnedText };
+    }
+  }
+
+  // WARM-UP: dynamic_10, dynamic_20, dynamic_50
+  if (category === "warm_up") {
+    const match = badge.match(/^dynamic_(\d+)$/);
+    if (match) {
+      const sessions =
+        Number(match[1]) || (Number.isFinite(thresholdValue) ? thresholdValue : 0);
+      const name = `Dynamic Warm-up - ${sessions} sessions complete`;
+      const base = "our dynamic warm-up protocol";
+      const earnText = `Earn this badge for completing ${sessions} sessions of ${base}.`;
+      const earnedText = `You earned this badge for completing ${sessions} sessions of ${base}.`;
+      return { name, earnText, earnedText };
+    }
+  }
+
+  // EXIT VELO: eva_1_1, eva_2_3, etc.
+  if (category === "exit_velo") {
+    const match = badge.match(/^eva_(\d+)_(\d+)$/);
+    if (match) {
+      const level = Number(match[1]);
+      const sessions =
+        (Number.isFinite(thresholdValue) ? thresholdValue : Number(match[2])) || 0;
+      const name = `Exit Velo Application Level ${level} - ${sessions} session${
+        sessions === 1 ? "" : "s"
+      } complete`;
+      const base = `our Exit Velo Application Level ${level} protocol`;
+      const earnText = `Earn this badge for completing ${sessions} sessions of ${base}.`;
+      const earnedText = `You earned this badge for completing ${sessions} sessions of ${base}.`;
+      return { name, earnText, earnedText };
+    }
+  }
+
+  // GAINS: bat_5/10/15, eva_5/10/15, even_3/2/1
+  if (category === "gains") {
+    const [kind, amountStr] = badge.split("_");
+    const amount =
+      (Number.isFinite(thresholdValue) ? thresholdValue : Number(amountStr)) || 0;
+
+    if (kind === "bat" && amount) {
+      const name = `${amount}% Bat Speed Gain`;
+      const earnText = `Earn this medal for gaining at least ${amount}% bat speed compared to your baseline game bat speed.`;
+      const earnedText = `You earned this medal for gaining at least ${amount}% bat speed compared to your baseline game bat speed.`;
+      return { name, earnText, earnedText };
+    }
+
+    if (kind === "eva" && amount) {
+      const name = `${amount}% Exit Velo Gain`;
+      const earnText = `Earn this medal for gaining at least ${amount}% exit velocity compared to your baseline game bat exit velo.`;
+      const earnedText = `You earned this medal for gaining at least ${amount}% exit velocity compared to your baseline game bat exit velo.`;
+      return { name, earnText, earnedText };
+    }
+
+    if (kind === "even" && amount) {
+      const name = `Non-dominant swings within ${amount}% of dominant side`;
+      const earnText = `Earn this medal because your non-dominant swings are within ${amount}% of the speed of your dominant side swings.`;
+      const earnedText = `You earned this medal because your non-dominant swings are within ${amount}% of the speed of your dominant side swings.`;
+      return { name, earnText, earnedText };
+    }
+  }
+
+  // VELOBAT: bb_10/15/20, gs_5/10/15, fl_2/5/8
+  if (category === "velobat") {
+    const [cfg, pctStr] = badge.split("_");
+    const percent =
+      (Number.isFinite(thresholdValue) ? thresholdValue : Number(pctStr)) || 0;
+
+    let configLabel = "";
+    let configSentence = "";
+
+    switch (cfg) {
+      case "bb":
+        configLabel = "Velo Base Bat";
+        configSentence = "the Velo base bat";
+        break;
+      case "gs":
+        configLabel = "Velo Green Sleeve";
+        configSentence = "the Velo green sleeve bat";
+        break;
+      case "fl":
+        configLabel = "Velo Fully Loaded";
+        configSentence = "the Velo fully loaded bat";
+        break;
+      default:
+        configLabel = toTitleCaseFromSnake(cfg);
+        configSentence = `the ${configLabel}`;
+        break;
+    }
+
+    const name = `${configLabel} ${percent}% faster than game bat speed`;
+    const earnText = `Earn this medal because your speed with ${configSentence} is at least ${percent}% faster than your baseline speed with your game bat.`;
+    const earnedText = `You earned this medal because your speed with ${configSentence} is at least ${percent}% faster than your baseline speed with your game bat.`;
+    return { name, earnText, earnedText };
+  }
+
+  // SPECIAL: join_team, com_profile, non_dom_X, etc.
+  if (category === "special") {
+    if (badge === "join_team") {
+      const name = "Join a Team";
+      const earnText = "Earn this medal for joining a team in the Velo app!";
+      const earnedText =
+        "You earned this medal for joining a team in the Velo app!";
+      return { name, earnText, earnedText };
+    }
+
+    if (badge === "com_profile") {
+      const name = "Completed Your Profile";
+      const earnText =
+        "Earn this medal for completing your player profile in the Velo app!";
+      const earnedText =
+        "You earned this medal for completing your player profile!";
+      return { name, earnText, earnedText };
+    }
+
+    const nonDomMatch = badge.match(/^non_dom_(\d+)/);
+    if (nonDomMatch) {
+      const percent =
+        (Number.isFinite(thresholdValue)
+          ? thresholdValue
+          : Number(nonDomMatch[1])) || 0;
+      const name = `Non-dominant swings within ${percent}% of dominant side`;
+      const earnText = `Earn this medal because your non-dominant swings are within ${percent}% of the speed of your dominant side swings with any Velo Bat configuration.`;
+      const earnedText = `You earned this medal because your non-dominant swings are within ${percent}% of the speed of your dominant side swings with any Velo Bat configuration.`;
+      return { name, earnText, earnedText };
+    }
+  }
+
+  // Fallback – use description if present, otherwise title-case the badge_name
+  const fallbackName =
+    medal.description?.trim().length && medal.description.length < 60
+      ? medal.description
+      : toTitleCaseFromSnake(badge.replace(/_/g, " "));
+  const earnText = `Earn this badge by reaching the "${fallbackName}" milestone.`;
+  const earnedText = `You earned this badge by reaching the "${fallbackName}" milestone.`;
+  return { name: fallbackName, earnText, earnedText };
+}
+
+interface MedalTileProps {
+  medal: Medal;
+  earned: boolean;
+  compact?: boolean;
+}
+
+/**
+ * Small visual tile for a single medal.
+ */
+const MedalTile: React.FC<MedalTileProps> = ({ medal, earned, compact }) => {
+  const { name, earnText, earnedText } = humanizeMedal(medal);
+  const tierColor = getMedalTierColor(String(medal.badge_tier));
+  const title = earned ? earnedText : earnText;
+
+  const imageUrl =
+    (medal as any).image_url ||
+    (medal.image_path && medal.image_path.startsWith("http")
+      ? medal.image_path
+      : undefined);
+
+  const maxLabelChars = compact ? 14 : 18;
+  const label =
+    name.length > maxLabelChars
+      ? `${name.slice(0, maxLabelChars - 1)}…`
+      : name;
+
+  const size = compact ? 56 : 78;
+
+  return (
+    <div
+      title={title}
+      style={{
+        width: size,
+        borderRadius: "10px",
+        border: `1px solid ${tierColor}`,
+        background: "#020617",
+        padding: compact ? "0.25rem" : "0.35rem",
+        opacity: earned ? 1 : 0.3,
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "flex-start",
+        gap: "0.2rem",
+        boxSizing: "border-box"
+      }}
+    >
+      <div
+        style={{
+          width: "100%",
+          height: compact ? 32 : 40,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center"
+        }}
+      >
+        {imageUrl ? (
+          <img
+            src={imageUrl}
+            alt={name}
+            style={{
+              maxWidth: "100%",
+              maxHeight: "100%",
+              objectFit: "contain",
+              display: "block"
+            }}
+          />
+        ) : (
+          <span
+            style={{
+              fontSize: compact ? "0.7rem" : "0.75rem",
+              color: PRIMARY_TEXT,
+              textAlign: "center"
+            }}
+          >
+            {label}
+          </span>
+        )}
+      </div>
+      <div
+        style={{
+          fontSize: "0.7rem",
+          color: MUTED_TEXT,
+          textAlign: "center",
+          lineHeight: 1.2
+        }}
+      >
+        {label}
+      </div>
+    </div>
+  );
+};
+
+interface RecentMedalsCardProps {
+  medalsResponse?: PlayerMedalsResponse | null;
+  loading?: boolean;
+  error?: string | null;
+  ageGroup?: string | null;
+  title?: string;
+}
+
+/**
+ * Dashboard "Recent Medals" card – shows most recent 3 earned medals.
+ * This is intentionally simpler than the StatsPage medals card and has
+ * no "view all" CTA.
+ */
+const RecentMedalsCard: React.FC<RecentMedalsCardProps> = ({
+  medalsResponse,
+  loading,
+  error,
+  ageGroup,
+  title = "Recent Medals"
+}) => {
+  let body: React.ReactNode = null;
+
+  if (loading) {
+    body = (
+      <div style={{ fontSize: "0.8rem", color: MUTED_TEXT }}>
+        Loading medals...
+      </div>
+    );
+  } else if (error) {
+    body = (
+      <div style={{ fontSize: "0.8rem", color: "#f97316" }}>
+        Unable to load medals right now.
+      </div>
+    );
+  } else if (!medalsResponse) {
+    body = (
+      <div style={{ fontSize: "0.8rem", color: MUTED_TEXT }}>
+        Medal data not available yet.
+      </div>
+    );
+  } else if (!medalsResponse.medals.length) {
+    body = (
+      <div style={{ fontSize: "0.8rem", color: MUTED_TEXT }}>
+        Medals have not been configured yet.
+      </div>
+    );
+  } else {
+    const { medals, earned } = medalsResponse;
+    const medalsById = new Map<string, Medal>();
+    for (const medal of medals) {
+      medalsById.set(medal.id, medal);
+    }
+
+    const eligibleEarned = earned
+      .map((row) => {
+        const medal = medalsById.get(row.medal_id);
+        if (!medal) return null;
+        if (ageGroup && medal.age_group !== ageGroup) return null;
+        return { row, medal };
+      })
+      .filter(Boolean) as { row: PlayerMedal; medal: Medal }[];
+
+    if (!eligibleEarned.length) {
+      body = (
+        <div style={{ fontSize: "0.8rem", color: MUTED_TEXT }}>
+          No medals earned yet. Complete training sessions to start
+          unlocking medals.
+        </div>
+      );
+    } else {
+      const sorted = [...eligibleEarned].sort(
+        (a, b) =>
+          new Date(b.row.earned_at).getTime() -
+          new Date(a.row.earned_at).getTime()
+      );
+      const recent = sorted.slice(0, 3);
+
+      body = (
+        <>
+          <div
+            style={{
+              fontSize: "0.75rem",
+              color: MUTED_TEXT,
+              marginBottom: "0.35rem"
+            }}
+          >
+            Last {recent.length} medals you&apos;ve unlocked.
+          </div>
+          <div
+            style={{
+              display: "flex",
+              flexWrap: "wrap",
+              gap: "0.75rem"
+            }}
+          >
+            {recent.map(({ row, medal }) => (
+              <div
+                key={row.id}
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  gap: "0.25rem"
+                }}
+                title={humanizeMedal(medal).earnedText}
+              >
+                <MedalTile medal={medal} earned compact />
+                <span
+                  style={{
+                    fontSize: "0.7rem",
+                    color: MUTED_TEXT
+                  }}
+                >
+                  {formatDateShort(row.earned_at)}
+                </span>
+              </div>
+            ))}
+          </div>
+        </>
+      );
+    }
+  }
+
+  return (
+    <div
+      style={{
+        borderRadius: "12px",
+        border: `1px solid ${CARD_BORDER}`,
+        background: CARD_BG,
+        boxShadow: CARD_SHADOW,
+        padding: "1rem",
+        display: "flex",
+        flexDirection: "column",
+        gap: "0.4rem"
+      }}
+    >
+      <div
+        style={{
+          fontSize: "1rem",
+          color: PRIMARY_TEXT,
+          margin: 0
+        }}
+      >
+        {title}
+      </div>
+      <div
+        style={{
+          fontSize: "0.8rem",
+          color: MUTED_TEXT
+        }}
+      >
+        Track the latest medals earned from your training.
+      </div>
+      {body}
+    </div>
+  );
+};
+
+/* ------------------------------------------------------------------ */
+/* Remaining helpers                                                  */
+/* ------------------------------------------------------------------ */
 
 function generateDummyEmail(firstName: string, lastName: string): string {
   const base = `${firstName ?? ""}${lastName ?? ""}`
@@ -179,6 +793,75 @@ const SESSION_RANGE_LABELS: Record<SessionRangeKey, string> = {
   last7d: "Last 7 days",
   last30d: "Last 30 days"
 };
+
+// --- Shared helpers copied from MyProgramPage ---
+
+const todayIso = () => new Date().toISOString().slice(0, 10);
+
+const parseIsoLocal = (iso: string): Date => new Date(`${iso}T00:00:00`);
+
+const diffDaysLocal = (aIso: string, bIso: string): number => {
+  const da = parseIsoLocal(aIso);
+  const db = parseIsoLocal(bIso);
+  const ms = da.getTime() - db.getTime();
+  return Math.round(ms / (1000 * 60 * 60 * 24));
+};
+
+// Abbreviation helper for dashboard use (same as MyProgramPage)
+const protocolAbbreviation = (title: string): string => {
+  const t = title.toLowerCase().trim();
+
+  const matchLevel = (prefix: string) => {
+    const match = t.match(/level\s*([1-5])/);
+    if (match) return `${prefix}${match[1]}`;
+    return prefix;
+  };
+
+  // OverSpeed
+  if (t.startsWith("overspeed")) return matchLevel("OS");
+
+  // Counterweight
+  if (t.startsWith("counterweight")) return matchLevel("CW");
+
+  // Power Mechanics – Ground Force
+  if (t.startsWith("power mechanics ground force")) return matchLevel("PM_GF");
+
+  // Power Mechanics – Rotational Sequencing
+  if (
+    t.startsWith("power mechanics rotational sequencing") ||
+    t.startsWith("power mechanics sequencing")
+  ) {
+    return matchLevel("PM_RS");
+  }
+
+  // Power Mechanics – Bat Delivery
+  if (t.startsWith("power mechanics bat delivery")) return "PM_BD";
+
+  // Exit Velo Application
+  if (t.startsWith("exit velo application")) return matchLevel("EVA");
+
+  // Warm-ups
+  if (t.includes("dynamic") && t.includes("warm")) return "DWU";
+  if (t.includes("pre") && t.includes("warm")) return "PGW";
+  if (t.includes("deck") && t.includes("warm")) return "ODW";
+
+  // Assessments
+  if (t.includes("assessment") && t.includes("full")) return "FSA";
+  if (t.includes("assessment") && (t.includes("quick") || t.includes("short"))) {
+    return "QSA";
+  }
+
+  // Fallback: just use the title
+  return title;
+};
+
+const phaseLabel = (phase: ProgramState["currentPhase"]): string => {
+  if (phase.startsWith("RAMP")) return "Ramp‑up";
+  if (phase.startsWith("PRIMARY")) return "Primary";
+  if (phase.startsWith("MAINT")) return "Maintenance";
+  return phase;
+};
+
 
 function formatDateShort(isoDate: string): string {
   if (!isoDate) return "";
@@ -242,6 +925,17 @@ const DashboardPage: React.FC = () => {
     useState<PlayerStatsSummary | null>(null);
   const [playerStatsLoading, setPlayerStatsLoading] = useState(false);
   const [playerStatsError, setPlayerStatsError] = useState<string | null>(null);
+
+  // ---- Player/parent medals (recent medals card on dashboard) ----
+  const [dashboardMedals, setDashboardMedals] =
+    useState<PlayerMedalsResponse | null>(null);
+  const [dashboardMedalsLoading, setDashboardMedalsLoading] =
+    useState(false);
+  const [dashboardMedalsError, setDashboardMedalsError] = useState<
+    string | null
+  >(null);
+  const [dashboardMedalsAgeGroup, setDashboardMedalsAgeGroup] =
+    useState<string | null>(null);
 
   // ---- Player/parent next upcoming session ----
   const [nextSessionForDashboard, setNextSessionForDashboard] =
@@ -358,6 +1052,45 @@ const DashboardPage: React.FC = () => {
     };
 
     load();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [targetPlayerIdForDashboard]);
+
+  // ---- Medals for whichever player is "in focus" (recent medals card) ----
+  useEffect(() => {
+    if (!targetPlayerIdForDashboard) {
+      setDashboardMedals(null);
+      setDashboardMedalsError(null);
+      setDashboardMedalsAgeGroup(null);
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadMedals = async () => {
+      try {
+        setDashboardMedalsLoading(true);
+        setDashboardMedalsError(null);
+        const res = await fetchPlayerMedals(targetPlayerIdForDashboard);
+        if (cancelled) return;
+        setDashboardMedals(res);
+        setDashboardMedalsAgeGroup(res.playerAgeGroup ?? null);
+      } catch (err: any) {
+        if (cancelled) return;
+        setDashboardMedalsError(
+          err?.message ?? "Failed to load medals"
+        );
+        setDashboardMedals(null);
+      } finally {
+        if (!cancelled) {
+          setDashboardMedalsLoading(false);
+        }
+      }
+    };
+
+    loadMedals();
 
     return () => {
       cancelled = true;
@@ -629,8 +1362,6 @@ const DashboardPage: React.FC = () => {
     );
   }
 
-
-
   // When viewing a team leaderboard from the dashboard
   if (shellView === "team-leaderboard") {
     return (
@@ -672,7 +1403,7 @@ const DashboardPage: React.FC = () => {
       : null;
 
   const selectedPlayerEmail = selectedPlayer?.email ?? null;
-  
+
   const tabs: { id: MainTab; label: string }[] = [
     { id: "dashboard", label: "Dashboard" },
     { id: "library", label: "Protocol Library" },
@@ -822,7 +1553,6 @@ const DashboardPage: React.FC = () => {
       alert(message);
     }
   };
-
 
   // ---- Parent manage section (Your Players / Add / Invite) ----
   const renderParentManageSection = () => {
@@ -1351,66 +2081,94 @@ const DashboardPage: React.FC = () => {
             gap: "1rem"
           }}
         >
-          {/* 1. Total bat speed gained (Speed Gains card for player) */}
+          {/* Row 1: Bat speed gains + Recent medals (2-column) */}
           <div
-            onClick={() => setActiveTab("stats")}
             style={{
-              borderRadius: "12px",
-              border: `1px solid ${CARD_BORDER}`,
-              background: CARD_BG,
-              boxShadow: CARD_SHADOW,
-              padding: "1rem",
-              display: "flex",
-              flexDirection: "column",
-              gap: "0.4rem",
-              cursor: "pointer"
+              display: "grid",
+              gridTemplateColumns: "minmax(0, 1.2fr) minmax(0, 1.4fr)",
+              gap: "1rem",
+              alignItems: "stretch"
             }}
           >
-            <h3
+            {/* Total bat speed gained */}
+            <div
+              onClick={() => setActiveTab("stats")}
               style={{
-                margin: 0,
-                fontSize: "1rem",
-                color: PRIMARY_TEXT
+                borderRadius: "12px",
+                border: `1px solid ${CARD_BORDER}`,
+                background: CARD_BG,
+                boxShadow: CARD_SHADOW,
+                padding: "1rem",
+                display: "flex",
+                flexDirection: "column",
+                gap: "0.4rem",
+                cursor: "pointer"
               }}
             >
-              Total Bat Speed Gained
-            </h3>
-            {playerStatsLoading ? (
+              <h3
+                style={{
+                  margin: 0,
+                  fontSize: "1rem",
+                  color: PRIMARY_TEXT
+                }}
+              >
+                Total Bat Speed Gained
+              </h3>
+              {playerStatsLoading ? (
+                <div
+                  style={{
+                    fontSize: "0.85rem",
+                    color: MUTED_TEXT,
+                    marginTop: "0.2rem"
+                  }}
+                >
+                  Calculating from assessments…
+                </div>
+              ) : (
+                <div
+                  style={{
+                    fontSize: "1.4rem",
+                    fontWeight: 700,
+                    color: ACCENT,
+                    marginTop: "0.2rem"
+                  }}
+                >
+                  {formattedBatGain} %
+                </div>
+              )}
+              {playerStatsError && (
+                <p
+                  style={{
+                    margin: 0,
+                    fontSize: "0.8rem",
+                    color: "#f87171"
+                  }}
+                >
+                  {playerStatsError}
+                </p>
+              )}
               <div
                 style={{
-                  fontSize: "0.85rem",
+                  fontSize: "0.75rem",
                   color: MUTED_TEXT,
                   marginTop: "0.2rem"
                 }}
               >
-                Calculating from assessments…
+                Tap to open your full stats.
               </div>
-            ) : (
-              <div
-                style={{
-                  fontSize: "1.4rem",
-                  fontWeight: 700,
-                  color: ACCENT,
-                  marginTop: "0.2rem"
-                }}
-              >
-                {formattedBatGain} %
-              </div>
-            )}
-            {playerStatsError && (
-              <p
-                style={{
-                  margin: 0,
-                  fontSize: "0.8rem",
-                  color: "#f87171"
-                }}
-              >
-                {playerStatsError}
-              </p>
-            )}
+            </div>
+
+            {/* Recent medals card */}
+            <RecentMedalsCard
+              medalsResponse={dashboardMedals}
+              loading={dashboardMedalsLoading}
+              error={dashboardMedalsError}
+              ageGroup={dashboardMedalsAgeGroup}
+              title="Recent Medals"
+            />
           </div>
 
-          {/* 2. Next Training Session */}
+          {/* Row 2: Next Training Session (full width) */}
           <div
             style={{
               borderRadius: "12px",
@@ -1437,8 +2195,8 @@ const DashboardPage: React.FC = () => {
               }}
             >
               Jump straight into the next recommended day in{" "}
-              <strong>My Program</strong>. This pulls from your Upcoming
-              Sessions.
+              <strong>My Program</strong>. This pulls from your{" "}
+              <strong>Upcoming Sessions</strong> view.
             </p>
 
             <div
@@ -1521,26 +2279,32 @@ const DashboardPage: React.FC = () => {
               )}
             </div>
 
-            <button
-              type="button"
-              onClick={() => setActiveTab("program")}
+            <div
               style={{
-                width: "100%",
-                padding: "0.7rem 1rem",
-                borderRadius: "999px",
-                border: "none",
-                cursor: "pointer",
-                background: ACCENT,
-                color: "#0f172a",
-                fontWeight: 600,
-                fontSize: "0.95rem"
+                display: "flex",
+                justifyContent: "flex-start"
               }}
             >
-              Go to My Program
-            </button>
+              <button
+                type="button"
+                onClick={() => setActiveTab("program")}
+                style={{
+                  padding: "0.5rem 1rem",
+                  borderRadius: "999px",
+                  border: "none",
+                  cursor: "pointer",
+                  background: ACCENT,
+                  color: "#0f172a",
+                  fontWeight: 600,
+                  fontSize: "0.9rem"
+                }}
+              >
+                Go to My Program
+              </button>
+            </div>
           </div>
 
-          {/* 3. Start a Session */}
+          {/* Row 3: Start a Session (full width, smaller button) */}
           <div
             style={{
               borderRadius: "12px",
@@ -1571,26 +2335,32 @@ const DashboardPage: React.FC = () => {
               one-off session.
             </p>
 
-            <button
-              type="button"
-              onClick={() => {
-                setProgramProtocolTitle(null);
-                setShellView("start-session");
-              }}
+            <div
               style={{
-                width: "100%",
-                padding: "0.7rem 1rem",
-                borderRadius: "999px",
-                border: "none",
-                cursor: "pointer",
-                background: ACCENT,
-                color: "#0f172a",
-                fontWeight: 600,
-                fontSize: "0.95rem"
+                display: "flex",
+                justifyContent: "flex-start"
               }}
             >
-              Choose Protocol
-            </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setProgramProtocolTitle(null);
+                  setShellView("start-session");
+                }}
+                style={{
+                  padding: "0.5rem 1rem",
+                  borderRadius: "999px",
+                  border: "none",
+                  cursor: "pointer",
+                  background: ACCENT,
+                  color: "#0f172a",
+                  fontWeight: 600,
+                  fontSize: "0.9rem"
+                }}
+              >
+                Choose Protocol
+              </button>
+            </div>
           </div>
         </section>
 
@@ -1824,66 +2594,94 @@ const DashboardPage: React.FC = () => {
             gap: "1rem"
           }}
         >
-          {/* 1. Total bat speed gained for child */}
+          {/* Row 1: Bat speed + Recent medals for child */}
           <div
-            onClick={() => setActiveTab("stats")}
             style={{
-              borderRadius: "12px",
-              border: `1px solid ${CARD_BORDER}`,
-              background: CARD_BG,
-              boxShadow: CARD_SHADOW,
-              padding: "1rem",
-              display: "flex",
-              flexDirection: "column",
-              gap: "0.4rem",
-              cursor: "pointer"
+              display: "grid",
+              gridTemplateColumns: "minmax(0, 1.2fr) minmax(0, 1.4fr)",
+              gap: "1rem",
+              alignItems: "stretch"
             }}
           >
-            <h3
+            {/* Total bat speed gained for child */}
+            <div
+              onClick={() => setActiveTab("stats")}
               style={{
-                margin: 0,
-                fontSize: "1rem",
-                color: PRIMARY_TEXT
+                borderRadius: "12px",
+                border: `1px solid ${CARD_BORDER}`,
+                background: CARD_BG,
+                boxShadow: CARD_SHADOW,
+                padding: "1rem",
+                display: "flex",
+                flexDirection: "column",
+                gap: "0.4rem",
+                cursor: "pointer"
               }}
             >
-              Total Bat Speed Gained
-            </h3>
-            {playerStatsLoading ? (
+              <h3
+                style={{
+                  margin: 0,
+                  fontSize: "1rem",
+                  color: PRIMARY_TEXT
+                }}
+              >
+                Total Bat Speed Gained
+              </h3>
+              {playerStatsLoading ? (
+                <div
+                  style={{
+                    fontSize: "0.85rem",
+                    color: MUTED_TEXT,
+                    marginTop: "0.2rem"
+                  }}
+                >
+                  Calculating from assessments…
+                </div>
+              ) : (
+                <div
+                  style={{
+                    fontSize: "1.4rem",
+                    fontWeight: 700,
+                    color: ACCENT,
+                    marginTop: "0.2rem"
+                  }}
+                >
+                  {formattedBatGain} %
+                </div>
+              )}
+              {playerStatsError && (
+                <p
+                  style={{
+                    margin: 0,
+                    fontSize: "0.8rem",
+                    color: "#f87171"
+                  }}
+                >
+                  {playerStatsError}
+                </p>
+              )}
               <div
                 style={{
-                  fontSize: "0.85rem",
+                  fontSize: "0.75rem",
                   color: MUTED_TEXT,
                   marginTop: "0.2rem"
                 }}
               >
-                Calculating from assessments…
+                Tap to view {shortChildName}&apos;s full stats.
               </div>
-            ) : (
-              <div
-                style={{
-                  fontSize: "1.4rem",
-                  fontWeight: 700,
-                  color: ACCENT,
-                  marginTop: "0.2rem"
-                }}
-              >
-                {formattedBatGain} %
-              </div>
-            )}
-            {playerStatsError && (
-              <p
-                style={{
-                  margin: 0,
-                  fontSize: "0.8rem",
-                  color: "#f87171"
-                }}
-              >
-                {playerStatsError}
-              </p>
-            )}
+            </div>
+
+            {/* Recent medals for child */}
+            <RecentMedalsCard
+              medalsResponse={dashboardMedals}
+              loading={dashboardMedalsLoading}
+              error={dashboardMedalsError}
+              ageGroup={dashboardMedalsAgeGroup}
+              title={`${shortChildName}'s Recent Medals`}
+            />
           </div>
 
-          {/* 2. Next Training Session (for child) */}
+          {/* Row 2: Next Training Session (child, full width) */}
           <div
             style={{
               borderRadius: "12px",
@@ -1911,7 +2709,8 @@ const DashboardPage: React.FC = () => {
             >
               This pulls the next recommended training day from{" "}
               <strong>{childName}</strong>&apos;s{" "}
-              <strong>Velo program</strong>.
+              <strong>Velo program</strong>. It matches the first day in
+              their <strong>Upcoming Sessions</strong> list.
             </p>
 
             <div
@@ -1995,26 +2794,32 @@ const DashboardPage: React.FC = () => {
               )}
             </div>
 
-            <button
-              type="button"
-              onClick={() => setActiveTab("program")}
+            <div
               style={{
-                width: "100%",
-                padding: "0.7rem 1rem",
-                borderRadius: "999px",
-                border: "none",
-                cursor: "pointer",
-                background: ACCENT,
-                color: "#0f172a",
-                fontWeight: 600,
-                fontSize: "0.95rem"
+                display: "flex",
+                justifyContent: "flex-start"
               }}
             >
-              Go to {shortChildName}&apos;s program
-            </button>
+              <button
+                type="button"
+                onClick={() => setActiveTab("program")}
+                style={{
+                  padding: "0.5rem 1rem",
+                  borderRadius: "999px",
+                  border: "none",
+                  cursor: "pointer",
+                  background: ACCENT,
+                  color: "#0f172a",
+                  fontWeight: 600,
+                  fontSize: "0.9rem"
+                }}
+              >
+                Go to {shortChildName}&apos;s program
+              </button>
+            </div>
           </div>
 
-          {/* 3. Start a Session for child */}
+          {/* Row 3: Start a Session for child */}
           <div
             style={{
               borderRadius: "12px",
@@ -2046,26 +2851,32 @@ const DashboardPage: React.FC = () => {
               Assessments).
             </p>
 
-            <button
-              type="button"
-              onClick={() => {
-                setProgramProtocolTitle(null);
-                setShellView("start-session");
-              }}
+            <div
               style={{
-                width: "100%",
-                padding: "0.7rem 1rem",
-                borderRadius: "999px",
-                border: "none",
-                cursor: "pointer",
-                background: ACCENT,
-                color: "#0f172a",
-                fontWeight: 600,
-                fontSize: "0.95rem"
+                display: "flex",
+                justifyContent: "flex-start"
               }}
             >
-              Choose Protocol for {shortChildName}
-            </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setProgramProtocolTitle(null);
+                  setShellView("start-session");
+                }}
+                style={{
+                  padding: "0.5rem 1rem",
+                  borderRadius: "999px",
+                  border: "none",
+                  cursor: "pointer",
+                  background: ACCENT,
+                  color: "#0f172a",
+                  fontWeight: 600,
+                  fontSize: "0.9rem"
+                }}
+              >
+                Choose Protocol for {shortChildName}
+              </button>
+            </div>
           </div>
         </section>
 
@@ -2927,7 +3738,6 @@ const DashboardPage: React.FC = () => {
     );
   };
 
-
   const renderTabContent = () => {
     switch (activeTab) {
       case "dashboard":
@@ -3111,7 +3921,6 @@ const DashboardPage: React.FC = () => {
           </button>
         </div>
       </header>
-
 
       {/* App-style nav tabs */}
       <nav

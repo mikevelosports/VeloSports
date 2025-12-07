@@ -150,3 +150,57 @@ export async function fetchSessionWithEntries(
 
   return res.json();
 }
+
+// frontend/src/api/sessions.ts (add near the bottom, after fetchSessionWithEntries)
+
+export interface PlayerSessionSummary extends Session {
+  // Optional fields if your backend joins against protocols
+  protocol_title?: string | null;
+  protocol_category?: string | null;
+}
+
+/**
+ * Fetch recent sessions for a given player, optionally filtered by status.
+ *
+ * This assumes a backend route like:
+ *   GET /api/players/:playerId/sessions?status=completed&limit=100
+ * returning either an array of sessions or { sessions: [...] }.
+ */
+export async function fetchPlayerSessionsForPlayer(
+  playerId: string,
+  options?: { status?: SessionStatus | "all"; limit?: number }
+): Promise<PlayerSessionSummary[]> {
+  const params = new URLSearchParams();
+  if (options?.status && options.status !== "all") {
+    params.set("status", options.status);
+  }
+  if (options?.limit != null) {
+    params.set("limit", String(options.limit));
+  }
+
+  const query = params.toString();
+  const url = `${API_BASE_URL}/players/${playerId}/sessions${
+    query ? `?${query}` : ""
+  }`;
+
+  const res = await fetch(url);
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(
+      `Failed to fetch sessions: ${res.status} ${text.slice(0, 200)}`
+    );
+  }
+
+  const data = await res.json();
+
+  // Support both plain array and { sessions: [...] }
+  if (Array.isArray(data)) {
+    return data as PlayerSessionSummary[];
+  }
+  if (Array.isArray((data as any).sessions)) {
+    return (data as any).sessions as PlayerSessionSummary[];
+  }
+
+  return [];
+}

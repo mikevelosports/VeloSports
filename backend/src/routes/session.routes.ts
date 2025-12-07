@@ -329,12 +329,38 @@ router.get(
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { playerId } = req.params;
+      const { status, limit } = req.query as {
+        status?: string;
+        limit?: string;
+      };
 
-      const { data, error } = await supabaseAdmin
+      if (!playerId) {
+        return res.status(400).json({ error: "playerId is required" });
+      }
+
+      let query = supabaseAdmin
         .from("sessions")
         .select("*")
-        .eq("player_id", playerId)
-        .order("started_at", { ascending: false });
+        .eq("player_id", playerId);
+
+      // Optional status filter, e.g. status=completed
+      if (status && status !== "all") {
+        query = query.eq("status", status);
+      }
+
+      const limitNumber =
+        typeof limit === "string" && !Number.isNaN(Number(limit))
+          ? Math.max(1, Math.min(500, parseInt(limit, 10)))
+          : 200;
+
+      // Prefer ordering by completed_at (most recent completed first),
+      // then by started_at as a fallback.
+      query = query
+        .order("completed_at", { ascending: false, nullsFirst: false })
+        .order("started_at", { ascending: false, nullsFirst: false })
+        .limit(limitNumber);
+
+      const { data, error } = await query;
 
       if (error) {
         throw error;
@@ -346,5 +372,6 @@ router.get(
     }
   }
 );
+
 
 export default router;

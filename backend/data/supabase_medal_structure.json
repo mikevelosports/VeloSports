@@ -407,6 +407,58 @@
   }
 ]
 
+//session_protocol_summaries table structure
+
+[
+  {
+    "column_name": "session_id",
+    "data_type": "uuid",
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "column_name": "player_id",
+    "data_type": "uuid",
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "column_name": "protocol_id",
+    "data_type": "uuid",
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "column_name": "started_at",
+    "data_type": "timestamp with time zone",
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "column_name": "completed_at",
+    "data_type": "timestamp with time zone",
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "column_name": "status",
+    "data_type": "text",
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "column_name": "protocol_title",
+    "data_type": "text",
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "column_name": "protocol_category",
+    "data_type": "text",
+    "is_nullable": "YES",
+    "column_default": null
+  }
+]
 
 //sample rows from medals table
 
@@ -431,5 +483,7 @@
 [{"idx":0,"id":"029018e2-2cdc-47ea-a6f8-20c69e61da21","session_id":"efc7efb8-40e8-44b2-87b3-f2bf53ec043a","protocol_step_id":"9b2deffd-a69a-417a-bc1b-4ac26c064e73","attempt_index":1,"value_number":"89.00","value_text":null,"side":null,"recorded_at":"2025-12-05 13:11:40.454428+00","created_at":"2025-12-05 13:11:40.454428+00"}]
 
 
+//sample row from session_protocol_summaries
 
 
+[{"idx":0,"session_id":"04dc3532-0c94-4ce4-896c-12b8a43a9699","player_id":"698e38a2-f808-4675-b08b-e9dae004fefe","protocol_id":"411f9a9b-44f3-4311-9fad-1acf469adae2","started_at":"2025-12-02 19:43:17.442419+00","completed_at":null,"status":"in_progress","protocol_title":"Power Mechanics Sequencing Level 1","protocol_category":"power_mechanics"}]
