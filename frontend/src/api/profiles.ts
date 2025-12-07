@@ -134,3 +134,19 @@ export async function inviteExistingPlayerToParent(
 
   return res.json();
 }
+// NEW: full profile fetch by ID (uses GET /profiles/:id, which already returns "*")
+export interface ProfileDetail extends ProfileSummary {
+  // include any extra fields you care about; we only need birthdate for now
+  birthdate: string | null;
+}
+
+export async function fetchProfileById(id: string): Promise<ProfileDetail> {
+  const res = await fetch(`${API_BASE_URL}/profiles/${id}`);
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(
+      `Failed to fetch profile: ${res.status} ${text.slice(0, 100)}`
+    );
+  }
+  return res.json();
+}

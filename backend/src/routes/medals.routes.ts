@@ -128,6 +128,138 @@ function attachImageUrl(medals: any[] | null) {
   }));
 }
 
+type ComparisonKind = "event" | "boolean" | "numeric";
+
+function normalize(thresholdTypeRaw: string | null): string {
+  return (thresholdTypeRaw || "").toLowerCase();
+}
+
+/**
+ * Decide how this medal should be evaluated:
+ *  - "event"   → look at eventCodes (e.g. join_team, overspeed cycles)
+ *  - "boolean" → metric is true/false (profile_complete, etc.)
+ *  - "numeric" → metric is numeric, compare against threshold_value
+ */
+function getComparisonKind(thresholdTypeRaw: string | null): ComparisonKind {
+  const t = normalize(thresholdTypeRaw);
+
+  if (t === "event" || t === "overspeed_cycle" || t === "join_team") {
+    return "event";
+  }
+
+  if (t === "boolean" || t === "complete_profile") {
+    return "boolean";
+  }
+
+  // Everything else (session counts, gains, etc.) is numeric by default
+  return "numeric";
+}
+
+/**
+ * For numeric medals, which comparator do we use?
+ * If threshold_type is one of the explicit comparators, use it;
+ * otherwise default to ">=".
+ */
+function getNumericComparator(
+  thresholdTypeRaw: string | null
+): "gt" | "gte" | "lt" | "lte" | "eq" {
+  const t = normalize(thresholdTypeRaw);
+  if (t === "gt" || t === "gte" || t === "lt" || t === "lte" || t === "eq") {
+    return t;
+  }
+  return "gte";
+}
+
+/**
+ * Map a medal row to the metric key in the `metrics` map.
+ *
+ * Most of your medals encode the metric in `threshold_type`, not `metric_code`,
+ * so we prefer threshold_type, with some special cases.
+ */
+function getMetricKeyForMedal(medal: MedalRow): string | null {
+  const t = normalize(medal.threshold_type);
+  const mc = (medal.metric_code || "").toLowerCase();
+
+  // Special cases where the metric is actually a different field name
+  switch (t) {
+    // "Any session" medals (general_*_sessions)
+    case "session_count":
+      return "total_sessions_completed";
+
+    // Counterweight medals
+    case "counterweight_session_count":
+      return "total_counterweight_sessions";
+
+    // If you ever decide to track overspeed session counts separately:
+    case "overspeed_session_count":
+      return "total_overspeed_sessions";
+
+    // Profile completion specials
+    case "complete_profile":
+      return "profile_complete";
+  }
+
+  // For gains + per‑protocol counts, treat threshold_type itself as the metric key.
+  // This assumes you either already have, or will add, matching columns
+  // in player_program_state, e.g.:
+  //  - exit_velo_percent_gain
+  //  - bat_speed_percent_gain
+  //  - dynamic_session_count
+  //  - bat_delivery_session_count
+  //  - ground_force_1_session_count, etc.
+  const metricLikeTypes = new Set<string>([
+    "exit_velo_percent_gain",
+    "bat_speed_percent_gain",
+    "velo_bat_base_bat_percent_above_game_bat",
+    "velo_bat_green_sleeve_percent_above_game_bat",
+    "velo_bat_fl_percent_above_game_bat",
+    "dynamic_session_count",
+    "bat_delivery_session_count",
+    "ground_force_1_session_count",
+    "ground_force_2_session_count",
+    "ground_force_3_session_count",
+    "sequencing_1_session_count",
+    "sequencing_2_session_count",
+    "exit_velo_application_1_session_count",
+    "exit_velo_application_2_session_count",
+    "exit_velo_application_3_session_count"
+  ]);
+
+  if (metricLikeTypes.has(t)) {
+    return t;
+  }
+
+  // Fallback: use metric_code if it's something we know
+  if (mc) return mc;
+
+  return null;
+}
+
+/**
+ * For event-based medals, what "event key" should we match against eventCodes?
+ */
+function getEventKeyForMedal(medal: MedalRow): string | null {
+  const t = normalize(medal.threshold_type);
+  const mc = (medal.metric_code || "").toLowerCase();
+  const tt = (medal.threshold_text || "").toLowerCase();
+
+  if (t === "join_team") {
+    // You can choose whatever you like here, just be consistent
+    return "join_team";
+  }
+
+  if (t === "overspeed_cycle") {
+    // e.g. "primary_2_complete", "maintenance_3_complete"
+    if (tt) return tt;
+  }
+
+  // Generic event medals: use metric_code or threshold_text
+  if (mc) return mc;
+  if (tt) return tt;
+  return null;
+}
+
+
 /**
  * Core helper: evaluate medal thresholds for a player and award any
  * that should be granted based on:
@@ -227,12 +359,11 @@ export async function awardMedalsForPlayerEvents(opts: {
     metrics["profile_complete"] = !!profile.profile_complete;
   }
 
-  // player_program_state metrics
+  // Pull ALL program state columns so we can support a bunch of different
+  // threshold_type values without hardcoding every column name here.
   const { data: programRows, error: programError } = await supabaseAdmin
     .from("player_program_state")
-    .select(
-      "total_sessions_completed, total_overspeed_sessions, total_counterweight_sessions"
-    )
+    .select("*")
     .eq("player_id", playerId)
     .limit(1);
 
@@ -240,12 +371,11 @@ export async function awardMedalsForPlayerEvents(opts: {
 
   if (programRows && programRows.length > 0) {
     const ps = programRows[0] as any;
-    metrics["total_sessions_completed"] =
-      ps.total_sessions_completed ?? 0;
-    metrics["total_overspeed_sessions"] =
-      ps.total_overspeed_sessions ?? 0;
-    metrics["total_counterweight_sessions"] =
-      ps.total_counterweight_sessions ?? 0;
+    for (const [key, value] of Object.entries(ps)) {
+      if (key === "player_id") continue;
+      if (value === null || value === undefined) continue;
+      metrics[key.toLowerCase()] = value as number | boolean;
+    }
   }
 
   const nowIso = new Date().toISOString();
@@ -256,10 +386,9 @@ export async function awardMedalsForPlayerEvents(opts: {
     const medalId = medal.id;
     if (earnedSet.has(medalId)) continue;
 
-    const thresholdType = (medal.threshold_type || "gte").toLowerCase();
-    const metricCodeRaw = medal.metric_code || "";
-    const metricCode = metricCodeRaw.toLowerCase();
-    const thresholdText = (medal.threshold_text || "").toLowerCase();
+    const comparisonKind = getComparisonKind(medal.threshold_type);
+    const metricKey = getMetricKeyForMedal(medal);
+    const thresholdTypeNormalized = normalize(medal.threshold_type);
 
     let thresholdValue: number | null = null;
     if (typeof medal.threshold_value === "number") {
@@ -273,41 +402,45 @@ export async function awardMedalsForPlayerEvents(opts: {
 
     let qualifies = false;
 
-    if (thresholdType === "event") {
-      const eventKey = (metricCode || thresholdText).toLowerCase();
+    if (comparisonKind === "event") {
+      const eventKey = getEventKeyForMedal(medal);
       if (eventKey && normalizedEvents.has(eventKey)) {
         qualifies = true;
       }
     } else {
-      // Stat-based medal
-      if (!metricCode) {
+      // Stat-based medal (boolean or numeric)
+      if (!metricKey) {
         continue;
       }
-      const metric = metrics[metricCode];
+
+      const metric = metrics[metricKey.toLowerCase()];
       if (metric === undefined) {
         continue;
       }
 
-      if (thresholdType === "boolean") {
+      if (comparisonKind === "boolean") {
         if (!!metric) {
           qualifies = true;
         }
       } else {
+        // numeric
         const metricNum =
           typeof metric === "number" ? metric : Number(metric);
         if (!Number.isFinite(metricNum) || thresholdValue == null) {
           continue;
         }
 
-        switch (thresholdType) {
+        const cmp = getNumericComparator(medal.threshold_type);
+
+        switch (cmp) {
           case "gt":
             qualifies = metricNum > thresholdValue;
             break;
-          case "lte":
-            qualifies = metricNum <= thresholdValue;
-            break;
           case "lt":
             qualifies = metricNum < thresholdValue;
+            break;
+          case "lte":
+            qualifies = metricNum <= thresholdValue;
             break;
           case "eq":
             qualifies = metricNum === thresholdValue;
@@ -353,6 +486,7 @@ export async function awardMedalsForPlayerEvents(opts: {
 
   return { newlyAwarded };
 }
+
 
 /**
  * GET /medals
@@ -475,5 +609,35 @@ router.get(
     }
   }
 );
+
+router.post(
+  "/players/:playerId/medals/award-events",
+  async (
+    req: Request<{ playerId: string }, unknown, { eventCodes?: string[]; source?: string; context?: any }>,
+    res: Response,
+    next: NextFunction
+  ) => {
+    try {
+      const { playerId } = req.params;
+      const { eventCodes, source, context } = req.body || {};
+
+      if (!playerId) {
+        return res.status(400).json({ error: "playerId is required" });
+      }
+
+      const result = await awardMedalsForPlayerEvents({
+        playerId,
+        eventCodes: Array.isArray(eventCodes) ? eventCodes : [],
+        source: source || "manual_event_award",
+        context: context && typeof context === "object" ? context : undefined
+      });
+
+      res.status(200).json(result);
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
 
 export default router;

@@ -1,6 +1,7 @@
 // backend/src/routes/profile.routes.ts
 import { Router, Request, Response, NextFunction } from "express";
 import { supabaseAdmin } from "../config/supabaseClient";
+import { awardMedalsForPlayerEvents } from "./medals.routes";
 
 type Role = "player" | "coach" | "parent" | "admin";
 
@@ -185,6 +186,27 @@ router.put(
 
       if (!profile) {
         return res.status(404).json({ error: "Profile not found" });
+      }
+
+      // ✅ Best-effort medal awarding for completed player profiles
+      try {
+        if (
+          profile.role === "player" &&
+          (profile as any).profile_complete === true
+        ) {
+          await awardMedalsForPlayerEvents({
+            playerId: profile.id,
+            eventCodes: ["profile_completed"],
+            source: "profile_completed",
+            context: { profile_id: profile.id }
+          });
+        }
+      } catch (medalErr) {
+        console.error(
+          "[profiles] Failed to award medals for profile completion",
+          profile.id,
+          medalErr
+        );
       }
 
       res.json(profile);

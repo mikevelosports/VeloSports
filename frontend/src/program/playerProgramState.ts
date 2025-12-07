@@ -19,6 +19,7 @@ export interface PlayerProgramState {
   program_start_date: string;    // when this program cycle started
 
   // Session counts
+  total_sessions_completed: number; 
   total_overspeed_sessions: number;
   overspeed_sessions_in_current_phase: number;
   total_counterweight_sessions: number;

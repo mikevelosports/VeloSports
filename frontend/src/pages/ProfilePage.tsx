@@ -3,6 +3,7 @@ import React, { useEffect, useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import { API_BASE_URL } from "../api/client";
 
+
 const PRIMARY_TEXT = "#e5e7eb";
 const MUTED_TEXT = "#9ca3af";
 const ACCENT = "#22c55e";
@@ -666,6 +667,9 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ playerIdOverride }) => {
     // - parent editing a child
     if (!isPlayerSelf && !isEditingChild) return;
 
+    // 👇 capture previous completion state
+    const wasComplete = profileComplete;
+
     setSaving(true);
     setError(null);
     setSuccess(null);
@@ -721,7 +725,8 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ playerIdOverride }) => {
           : null,
         photo_url: form.photo_url || null,
         softball: form.sport === "softball",
-        profile_complete: nowComplete // ✅ send to backend
+        // 👇 this is the flag the backend reads for the "complete profile" medal
+        profile_complete: nowComplete
       };
 
       const res = await fetch(
@@ -750,6 +755,35 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ playerIdOverride }) => {
       setProfileComplete(profileCompleteFromServer);
       setSuccess("Profile updated");
       setEditing(false);
+
+      // ✅ NEW: if the profile just flipped from incomplete -> complete,
+      // fire the medals award endpoint (best-effort; UI doesn't depend on it)
+      if (!wasComplete && profileCompleteFromServer) {
+        try {
+          await fetch(
+            `${API_BASE_URL}/players/${targetProfileId}/medals/award-events`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                // optional; metrics alone are enough, but this lets you add event medals later
+                eventCodes: ["profile_completed"],
+                source: "profile_update",
+                context: {
+                  triggered_from: "ProfilePage",
+                  profile_id: targetProfileId
+                }
+              })
+            }
+          );
+        } catch (medalErr) {
+          console.error(
+            "[ProfilePage] Failed to trigger profile-complete medals",
+            medalErr
+          );
+          // intentionally swallow – we don't block profile saving on medals
+        }
+      }
     } catch (err: any) {
       console.error(err);
       setError(err?.message ?? "Failed to update profile");
@@ -757,6 +791,7 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ playerIdOverride }) => {
       setSaving(false);
     }
   };
+
 
   // Simple meta for display
   const header = targetProfileHeader;

@@ -1,0 +1,435 @@
+//player_program_state table structure
+
+[
+  {
+    "column_name": "player_id",
+    "data_type": "uuid",
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "column_name": "current_phase",
+    "data_type": "text",
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "column_name": "phase_start_date",
+    "data_type": "date",
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "column_name": "program_start_date",
+    "data_type": "date",
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "column_name": "total_overspeed_sessions",
+    "data_type": "integer",
+    "is_nullable": "NO",
+    "column_default": "0"
+  },
+  {
+    "column_name": "overspeed_sessions_in_current_phase",
+    "data_type": "integer",
+    "is_nullable": "NO",
+    "column_default": "0"
+  },
+  {
+    "column_name": "total_counterweight_sessions",
+    "data_type": "integer",
+    "is_nullable": "NO",
+    "column_default": "0"
+  },
+  {
+    "column_name": "ground_force_sessions_by_level",
+    "data_type": "jsonb",
+    "is_nullable": "NO",
+    "column_default": "'{}'::jsonb"
+  },
+  {
+    "column_name": "sequencing_sessions_by_level",
+    "data_type": "jsonb",
+    "is_nullable": "NO",
+    "column_default": "'{}'::jsonb"
+  },
+  {
+    "column_name": "exit_velo_sessions_by_level",
+    "data_type": "jsonb",
+    "is_nullable": "NO",
+    "column_default": "'{}'::jsonb"
+  },
+  {
+    "column_name": "last_full_assessment_date",
+    "data_type": "date",
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "column_name": "last_quick_assessment_date",
+    "data_type": "date",
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "column_name": "needs_ground_force",
+    "data_type": "boolean",
+    "is_nullable": "NO",
+    "column_default": "false"
+  },
+  {
+    "column_name": "needs_sequencing",
+    "data_type": "boolean",
+    "is_nullable": "NO",
+    "column_default": "false"
+  },
+  {
+    "column_name": "needs_exit_velo",
+    "data_type": "boolean",
+    "is_nullable": "NO",
+    "column_default": "false"
+  },
+  {
+    "column_name": "needs_bat_delivery",
+    "data_type": "boolean",
+    "is_nullable": "NO",
+    "column_default": "false"
+  },
+  {
+    "column_name": "created_at",
+    "data_type": "timestamp with time zone",
+    "is_nullable": "NO",
+    "column_default": "now()"
+  },
+  {
+    "column_name": "updated_at",
+    "data_type": "timestamp with time zone",
+    "is_nullable": "NO",
+    "column_default": "now()"
+  },
+  {
+    "column_name": "total_sessions_completed",
+    "data_type": "integer",
+    "is_nullable": "NO",
+    "column_default": "0"
+  },
+  {
+    "column_name": "maintenance_extension_requested",
+    "data_type": "boolean",
+    "is_nullable": "NO",
+    "column_default": "false"
+  },
+  {
+    "column_name": "next_ramp_up_requested",
+    "data_type": "boolean",
+    "is_nullable": "NO",
+    "column_default": "false"
+  }
+]
+
+//medals table structure
+
+[
+  {
+    "column_name": "id",
+    "data_type": "uuid",
+    "is_nullable": "NO",
+    "column_default": "uuid_generate_v4()"
+  },
+  {
+    "column_name": "category",
+    "data_type": "text",
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "column_name": "badge_name",
+    "data_type": "text",
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "column_name": "age_group",
+    "data_type": "text",
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "column_name": "badge_tier",
+    "data_type": "text",
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "column_name": "metric_code",
+    "data_type": "text",
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "column_name": "threshold_value",
+    "data_type": "numeric",
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "column_name": "threshold_text",
+    "data_type": "text",
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "column_name": "threshold_type",
+    "data_type": "text",
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "column_name": "description",
+    "data_type": "text",
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "column_name": "file_name",
+    "data_type": "text",
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "column_name": "file_type",
+    "data_type": "text",
+    "is_nullable": "NO",
+    "column_default": "'png'::text"
+  },
+  {
+    "column_name": "image_path",
+    "data_type": "text",
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "column_name": "sort_order",
+    "data_type": "integer",
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "column_name": "is_active",
+    "data_type": "boolean",
+    "is_nullable": "NO",
+    "column_default": "true"
+  },
+  {
+    "column_name": "created_at",
+    "data_type": "timestamp with time zone",
+    "is_nullable": "NO",
+    "column_default": "now()"
+  },
+  {
+    "column_name": "updated_at",
+    "data_type": "timestamp with time zone",
+    "is_nullable": "NO",
+    "column_default": "now()"
+  }
+]
+
+//player_medals table structure
+
+[
+  {
+    "column_name": "id",
+    "data_type": "uuid",
+    "is_nullable": "NO",
+    "column_default": "uuid_generate_v4()"
+  },
+  {
+    "column_name": "player_id",
+    "data_type": "uuid",
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "column_name": "medal_id",
+    "data_type": "uuid",
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "column_name": "earned_at",
+    "data_type": "timestamp with time zone",
+    "is_nullable": "NO",
+    "column_default": "now()"
+  },
+  {
+    "column_name": "source",
+    "data_type": "text",
+    "is_nullable": "NO",
+    "column_default": "'auto'::text"
+  },
+  {
+    "column_name": "metadata",
+    "data_type": "jsonb",
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "column_name": "created_at",
+    "data_type": "timestamp with time zone",
+    "is_nullable": "NO",
+    "column_default": "now()"
+  }
+]
+
+//sessoins table structure
+
+[
+  {
+    "column_name": "id",
+    "data_type": "uuid",
+    "is_nullable": "NO",
+    "column_default": "uuid_generate_v4()"
+  },
+  {
+    "column_name": "player_id",
+    "data_type": "uuid",
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "column_name": "protocol_id",
+    "data_type": "uuid",
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "column_name": "created_by_profile_id",
+    "data_type": "uuid",
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "column_name": "created_by_role",
+    "data_type": "text",
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "column_name": "started_at",
+    "data_type": "timestamp with time zone",
+    "is_nullable": "NO",
+    "column_default": "now()"
+  },
+  {
+    "column_name": "completed_at",
+    "data_type": "timestamp with time zone",
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "column_name": "status",
+    "data_type": "text",
+    "is_nullable": "NO",
+    "column_default": "'in_progress'::text"
+  },
+  {
+    "column_name": "notes",
+    "data_type": "text",
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "column_name": "created_at",
+    "data_type": "timestamp with time zone",
+    "is_nullable": "NO",
+    "column_default": "now()"
+  }
+]
+
+//session_entries table structure
+
+[
+  {
+    "column_name": "id",
+    "data_type": "uuid",
+    "is_nullable": "NO",
+    "column_default": "uuid_generate_v4()"
+  },
+  {
+    "column_name": "session_id",
+    "data_type": "uuid",
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "column_name": "protocol_step_id",
+    "data_type": "uuid",
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "column_name": "attempt_index",
+    "data_type": "integer",
+    "is_nullable": "NO",
+    "column_default": "1"
+  },
+  {
+    "column_name": "value_number",
+    "data_type": "numeric",
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "column_name": "value_text",
+    "data_type": "text",
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "column_name": "side",
+    "data_type": "text",
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "column_name": "recorded_at",
+    "data_type": "timestamp with time zone",
+    "is_nullable": "NO",
+    "column_default": "now()"
+  },
+  {
+    "column_name": "created_at",
+    "data_type": "timestamp with time zone",
+    "is_nullable": "NO",
+    "column_default": "now()"
+  }
+]
+
+
+//sample rows from medals table
+
+[{"idx":0,"id":"00b06c31-85ae-4da2-b06c-f26f98f54031","category":"exit_velo","badge_name":"eva_1_1","age_group":"pro","badge_tier":"silver","metric_code":"exit_velo_eva_1_1_pro_silver","threshold_value":"1","threshold_text":null,"threshold_type":"exit_velo_application_1_session_count","description":null,"file_name":"exit_velo_eva_1_1_pro_silver.png","file_type":"png","image_path":"velo_medals/exit_velo_eva_1_1_pro_silver.png","sort_order":150,"is_active":true,"created_at":"2025-12-06 17:45:38.149528+00","updated_at":"2025-12-06 17:45:38.149528+00"},{"idx":1,"id":"019a3f46-4867-43fe-96de-6452b04cd7e8","category":"gains","badge_name":"ev_10_mph","age_group":"youth","badge_tier":"velo","metric_code":"gains_ev_10_mph_youth_velo","threshold_value":"10","threshold_text":null,"threshold_type":"exit_velo_percent_gain","description":null,"file_name":"gains_ev_10_mph_youth_velo.png","file_type":"png","image_path":"velo_medals/gains_ev_10_mph_youth_velo.png","sort_order":264,"is_active":true,"created_at":"2025-12-06 17:45:38.149528+00","updated_at":"2025-12-06 17:45:38.149528+00"},{"idx":2,"id":"026197da-643c-4c83-8c96-33983ac3effe","category":"velobat","badge_name":"fl_2","age_group":"all_star","badge_tier":"bronze","metric_code":"velobat_fl_2_all_star_bronze","threshold_value":"2","threshold_text":null,"threshold_type":"velo_bat_fl_percent_above_game_bat","description":null,"file_name":"velobat_fl_2_all_star_bronze.png","file_type":"png","image_path":"velo_medals/velobat_fl_2_all_star_bronze.png","sort_order":212,"is_active":true,"created_at":"2025-12-05 23:24:32.259142+00","updated_at":"2025-12-05 23:24:32.259142+00"},{"idx":3,"id":"02bb7a20-a35a-47fc-9432-614389bb5922","category":"mechanics","badge_name":"swing_50","age_group":"softball","badge_tier":"gold","metric_code":"mechanics_swing_50_softball_gold","threshold_value":"50","threshold_text":null,"threshold_type":"bat_delivery_session_count","description":null,"file_name":"mechanics_bd_20_softball_gold.png","file_type":"png","image_path":"velo_medals/mechanics_bd_20_softball_gold.png","sort_order":148,"is_active":true,"created_at":"2025-12-05 23:24:32.259142+00","updated_at":"2025-12-06 15:31:12.507915+00"},{"idx":4,"id":"02dce06b-4eb8-4a28-8bd5-0b0e1585da66","category":"special","badge_name":"join_team","age_group":"youth","badge_tier":"standard","metric_code":"special_join_team_youth_standard","threshold_value":null,"threshold_text":"player accepts a team invite","threshold_type":"join_team","description":null,"file_name":"special_join_team_youth_standard.png","file_type":"png","image_path":"velo_medals/special_join_team_youth_standard.png","sort_order":269,"is_active":true,"created_at":"2025-12-05 23:24:32.259142+00","updated_at":"2025-12-05 23:24:32.259142+00"},{"idx":5,"id":"050c683b-ab04-4b0f-a595-3d35ca99f417","category":"mechanics","badge_name":"gforce_50","age_group":"all_star","badge_tier":"gold","metric_code":"mechanics_gforce_50_all_star_gold","threshold_value":"50","threshold_text":null,"threshold_type":"ground_force_1_session_count","description":null,"file_name":"mechanics_gf_1_20_all_star_gold.png","file_type":"png","image_path":"velo_medals/mechanics_gf_1_20_all_star_gold.png","sort_order":82,"is_active":true,"created_at":"2025-12-05 23:24:32.259142+00","updated_at":"2025-12-06 15:31:12.507915+00"},{"idx":6,"id":"05a40dc9-1b62-41c7-bdea-d9e68d93d379","category":"mechanics","badge_name":"seq_50","age_group":"youth","badge_tier":"gold","metric_code":"mechanics_seq_50_youth_gold","threshold_value":"50","threshold_text":null,"threshold_type":"sequencing_1_session_count","description":null,"file_name":"mechanics_s_1_20_youth_gold.png","file_type":"png","image_path":"velo_medals/mechanics_s_1_20_youth_gold.png","sort_order":115,"is_active":true,"created_at":"2025-12-05 23:24:32.259142+00","updated_at":"2025-12-06 15:31:12.507915+00"},{"idx":7,"id":"07c8dd6d-03e7-4d51-a43d-ca1332d94e87","category":"gains","badge_name":"ev_7_mph","age_group":"pro","badge_tier":"gold","metric_code":"gains_ev_7_mph_pro_gold","threshold_value":"7","threshold_text":null,"threshold_type":"exit_velo_percent_gain","description":null,"file_name":"gains_ev_7_mph_pro_gold.png","file_type":"png","image_path":"velo_medals/gains_ev_7_mph_pro_gold.png","sort_order":258,"is_active":true,"created_at":"2025-12-06 17:45:38.149528+00","updated_at":"2025-12-06 17:45:38.149528+00"},{"idx":8,"id":"0b48c9e7-5988-46fe-af17-d59cd08c46f7","category":"velobat","badge_name":"bb_15","age_group":"softball","badge_tier":"silver","metric_code":"velobat_bb_15_softball_silver","threshold_value":"15","threshold_text":null,"threshold_type":"velo_bat_base_bat_percent_above_game_bat","description":null,"file_name":"velobat_bb_15_softball_silver.png","file_type":"png","image_path":"velo_medals/velobat_bb_15_softball_silver.png","sort_order":225,"is_active":true,"created_at":"2025-12-05 23:24:32.259142+00","updated_at":"2025-12-05 23:24:32.259142+00"},{"idx":9,"id":"0be1cb4c-9afb-48eb-956d-ade5f4d663b0","category":"mechanics","badge_name":"ldl_20","age_group":"pro","badge_tier":"silver","metric_code":"mechanics_ldl_20_pro_silver","threshold_value":"20","threshold_text":null,"threshold_type":"sequencing_2_session_count","description":null,"file_name":"mechanics_s_2_10_pro_silver.png","file_type":"png","image_path":"velo_medals/mechanics_s_2_10_pro_silver.png","sort_order":132,"is_active":true,"created_at":"2025-12-05 23:24:32.259142+00","updated_at":"2025-12-06 15:31:12.507915+00"},{"idx":10,"id":"0de95ba8-9e9c-44fa-b093-624094ad0ded","category":"overspeed","badge_name":"primary","age_group":"youth","badge_tier":"silver","metric_code":"overspeed_primary_youth_silver","threshold_value":null,"threshold_text":"primary_2_complete","threshold_type":"overspeed_cycle","description":null,"file_name":"overspeed_primary_youth_silver.png","file_type":"png","image_path":"velo_medals/overspeed_primary_youth_silver.png","sort_order":33,"is_active":true,"created_at":"2025-12-05 23:24:32.259142+00","updated_at":"2025-12-05 23:24:32.259142+00"},{"idx":11,"id":"103e340a-a7e9-4d2a-95a4-ddafea2ff98f","category":"mechanics","badge_name":"gforce_20","age_group":"softball","badge_tier":"silver","metric_code":"mechanics_gforce_20_softball_silver","threshold_value":"20","threshold_text":null,"threshold_type":"ground_force_1_session_count","description":null,"file_name":"mechanics_gf_1_10_softball_silver.png","file_type":"png","image_path":"velo_medals/mechanics_gf_1_10_softball_silver.png","sort_order":87,"is_active":true,"created_at":"2025-12-05 23:24:32.259142+00","updated_at":"2025-12-06 15:31:12.507915+00"},{"idx":12,"id":"112f7a4c-4cc9-4d33-a273-39a43b8d6a77","category":"velobat","badge_name":"gs_15","age_group":"youth","badge_tier":"gold","metric_code":"velobat_gs_15_youth_gold","threshold_value":"15","threshold_text":null,"threshold_type":"velo_bat_green_sleeve_percent_above_game_bat","description":null,"file_name":"velobat_gs_15_youth_gold.png","file_type":"png","image_path":"velo_medals/velobat_gs_15_youth_gold.png","sort_order":202,"is_active":true,"created_at":"2025-12-05 23:24:32.259142+00","updated_at":"2025-12-05 23:24:32.259142+00"},{"idx":13,"id":"117ebb7b-7214-4095-91b4-41a6e18f7565","category":"velobat","badge_name":"fl_8","age_group":"all_star","badge_tier":"gold","metric_code":"velobat_fl_8_all_star_gold","threshold_value":"8","threshold_text":null,"threshold_type":"velo_bat_fl_percent_above_game_bat","description":null,"file_name":"velobat_fl_8_all_star_gold.png","file_type":"png","image_path":"velo_medals/velobat_fl_8_all_star_gold.png","sort_order":214,"is_active":true,"created_at":"2025-12-05 23:24:32.259142+00","updated_at":"2025-12-05 23:24:32.259142+00"},{"idx":14,"id":"12aec61a-c425-455d-94ee-3c973c1bfe97","category":"general","badge_name":"100_sessions","age_group":"softball","badge_tier":"standard","metric_code":"general_100_sessions_softball_standard","threshold_value":"100","threshold_text":null,"threshold_type":"session_count","description":null,"file_name":"general_100_sessions_softball_standard.png","file_type":"png","image_path":"velo_medals/general_100_sessions_softball_standard.png","sort_order":26,"is_active":true,"created_at":"2025-12-05 23:24:32.259142+00","updated_at":"2025-12-05 23:24:32.259142+00"}]
+
+//sample row from player medals
+
+[{"idx":0,"id":"474c0f51-ae4d-4f53-9487-e36e1b08a28c","player_id":"698e38a2-f808-4675-b08b-e9dae004fefe","medal_id":"2d28fa38-2b40-499e-8081-7020fbb5593e","earned_at":"2025-12-06 20:35:42.548+00","source":"profile_completed","metadata":"{\"profile_id\": \"698e38a2-f808-4675-b08b-e9dae004fefe\"}","created_at":"2025-12-06 20:35:42.607164+00"}]
+
+
+//sample row from player_program_state
+
+[{"idx":0,"player_id":"47bd1097-497e-46a2-8395-13aadf1da62e","current_phase":"ramp_up","phase_start_date":"2025-11-14","program_start_date":"2025-10-31","total_overspeed_sessions":5,"overspeed_sessions_in_current_phase":5,"total_counterweight_sessions":0,"ground_force_sessions_by_level":"{}","sequencing_sessions_by_level":"{}","exit_velo_sessions_by_level":"{}","last_full_assessment_date":"2025-11-21","last_quick_assessment_date":"2025-11-28","needs_ground_force":false,"needs_sequencing":false,"needs_exit_velo":false,"needs_bat_delivery":false,"created_at":"2025-12-05 13:09:50.3534+00","updated_at":"2025-12-05 13:09:50.3534+00","total_sessions_completed":8,"maintenance_extension_requested":false,"next_ramp_up_requested":false}]
+
+
+//sample row from sessions
+
+[{"idx":0,"id":"04dc3532-0c94-4ce4-896c-12b8a43a9699","player_id":"698e38a2-f808-4675-b08b-e9dae004fefe","protocol_id":"411f9a9b-44f3-4311-9fad-1acf469adae2","created_by_profile_id":"698e38a2-f808-4675-b08b-e9dae004fefe","created_by_role":"player","started_at":"2025-12-02 19:43:17.442419+00","completed_at":null,"status":"in_progress","notes":"Session for Power Mechanics Sequencing Level 1","created_at":"2025-12-02 19:43:17.442419+00"}]
+
+//sample row from session_entries
+
+[{"idx":0,"id":"029018e2-2cdc-47ea-a6f8-20c69e61da21","session_id":"efc7efb8-40e8-44b2-87b3-f2bf53ec043a","protocol_step_id":"9b2deffd-a69a-417a-bc1b-4ac26c064e73","attempt_index":1,"value_number":"89.00","value_text":null,"side":null,"recorded_at":"2025-12-05 13:11:40.454428+00","created_at":"2025-12-05 13:11:40.454428+00"}]
+
+
+
+

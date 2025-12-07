@@ -16,6 +16,8 @@ import {
   type PlayerMedal
 } from "../api/medals";
 
+import { fetchProfileById } from "../api/profiles";
+
 // Match StartSessionPage theme
 const PRIMARY_TEXT = "#e5e7eb";
 const MUTED_TEXT = "#9ca3af";
@@ -133,20 +135,50 @@ const ELITE_BENCHMARKS: EliteBenchmarks[] = [
 ];
 
 const LEVEL_COLORS: Record<PlayerLevelBand, string> = {
-  Elite: ACCENT,         // green
-  Good: "#a3e635",       // lime
-  Average: "#eab308",    // amber
+  Elite: ACCENT, // green
+  Good: "#a3e635", // lime
+  Average: "#eab308", // amber
   "Below Average": "#fb923c", // orange
-  Developing: "#ef4444"  // red
+  Developing: "#ef4444" // red
 };
 
 const RUBRIC_BANDS: { band: PlayerLevelBand; minRatio: number }[] = [
   { band: "Elite", minRatio: 1.0 }, // >= 100% of elite
-  { band: "Good", minRatio: 0.9 },  // >= 90%
+  { band: "Good", minRatio: 0.9 }, // >= 90%
   { band: "Average", minRatio: 0.8 }, // >= 80%
   { band: "Below Average", minRatio: 0.7 }, // >= 70%
   { band: "Developing", minRatio: 0 } // < 70%
 ];
+
+// Order as shown visually left → right
+const BANDS_IN_ORDER: PlayerLevelBand[] = [
+  "Developing",
+  "Below Average",
+  "Average",
+  "Good",
+  "Elite"
+];
+
+// Map band → segment index in the 5-part bar
+const BAND_SEGMENT_INDEX: Record<PlayerLevelBand, number> = {
+  Developing: 0,
+  "Below Average": 1,
+  Average: 2,
+  Good: 3,
+  Elite: 4
+};
+
+// Map band → ratio range used for tick positioning
+// (these match the textual rubric: Developing <70%, Below 70–80%, etc.)
+const BAND_RATIO_RANGES: Record<PlayerLevelBand, { min: number; max: number }> =
+  {
+    Developing: { min: 0.0, max: 0.7 },
+    "Below Average": { min: 0.7, max: 0.8 },
+    Average: { min: 0.8, max: 0.9 },
+    Good: { min: 0.9, max: 1.0 },
+    // For Elite, allow some headroom above 100% but clamp at 120%.
+    Elite: { min: 1.0, max: 1.2 }
+  };
 
 function getBenchmarksForAge(
   ageYears: number | null | undefined
@@ -193,6 +225,36 @@ function getLevelForMetric(
   };
 }
 
+// Ensure tick uses *same* band mapping as highlight, so they line up.
+function getTickPositionForLevel(level: LevelResult | null): number | null {
+  if (!level) return null;
+
+  const ratio = level.percentOfElite / 100;
+  const band = level.band;
+  const segmentIndex = BAND_SEGMENT_INDEX[band];
+  const range = BAND_RATIO_RANGES[band];
+
+  const segmentCount = BANDS_IN_ORDER.length;
+  const segmentWidth = 100 / segmentCount;
+  const segStart = segmentIndex * segmentWidth;
+  const segEnd = segStart + segmentWidth;
+
+  if (!range) {
+    // Fallback: center of the segment
+    return segStart + segmentWidth / 2;
+  }
+
+  let clampedRatio = ratio;
+
+  // Clamp ratio into the band's intended range
+  clampedRatio = Math.max(range.min, Math.min(clampedRatio, range.max));
+
+  const denom = range.max - range.min || 1;
+  const t = (clampedRatio - range.min) / denom; // 0..1 within band
+
+  const pos = segStart + t * segmentWidth;
+  return Math.max(segStart, Math.min(pos, segEnd));
+}
 
 const LoadingCard: React.FC<{ message?: string }> = ({ message }) => (
   <section
@@ -948,9 +1010,7 @@ const PlayerMedalsGallery: React.FC<PlayerMedalsGalleryProps> = ({
               style={{
                 padding: "0.4rem 0.1rem",
                 borderTop:
-                  idx === 0
-                    ? "none"
-                    : "1px solid rgba(148,163,184,0.3)"
+                  idx === 0 ? "none" : "1px solid rgba(148,163,184,0.3)"
               }}
             >
               <div
@@ -961,8 +1021,7 @@ const PlayerMedalsGallery: React.FC<PlayerMedalsGalleryProps> = ({
                 }
                 style={{
                   display: "grid",
-                  gridTemplateColumns:
-                    "minmax(0, 1.3fr) minmax(0, 3fr)",
+                  gridTemplateColumns: "minmax(0, 1.3fr) minmax(0, 3fr)",
                   gap: "0.75rem",
                   alignItems: "center",
                   padding: "0.35rem 0.4rem",
@@ -1249,6 +1308,14 @@ interface DevelopmentRubricProps {
   playerAgeYears?: number | null;
 }
 
+/**
+ * Visual rubric card:
+ * - One full-width card under the two PB cards.
+ * - For each metric (Bat Speed, Exit Velo):
+ *   - Colored 5-segment bar (Developing → Elite)
+ *   - Tick mark showing where the player sits within their band
+ *   - Pill on the right with the current band label.
+ */
 const DevelopmentRubric: React.FC<DevelopmentRubricProps> = ({
   batSpeedPb,
   exitVeloPb,
@@ -1295,6 +1362,113 @@ const DevelopmentRubric: React.FC<DevelopmentRubricProps> = ({
   const batLevel = getLevelForMetric(batSpeedPb, benchmarks.eliteBatSpeed);
   const veloLevel = getLevelForMetric(exitVeloPb, benchmarks.eliteExitVelo);
 
+  const renderRubricRow = (
+    label: string,
+    level: LevelResult | null
+  ): React.ReactNode => {
+    const tickPosition = getTickPositionForLevel(level);
+
+    return (
+      <div style={{ marginBottom: "0.75rem" }}>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            gap: "0.5rem",
+            marginBottom: "0.3rem"
+          }}
+        >
+          <div
+            style={{
+              fontSize: "0.8rem",
+              fontWeight: 600,
+              color: PRIMARY_TEXT
+            }}
+          >
+            {label}
+          </div>
+          {level && (
+            <span
+              style={{
+                borderRadius: "999px",
+                padding: "0.1rem 0.6rem",
+                border: `1px solid ${LEVEL_COLORS[level.band]}`,
+                color: LEVEL_COLORS[level.band],
+                fontSize: "0.7rem",
+                fontWeight: 600,
+                whiteSpace: "nowrap"
+              }}
+            >
+              {level.band}
+            </span>
+          )}
+        </div>
+
+        <div
+          style={{
+            position: "relative",
+            borderRadius: "999px",
+            border: `1px solid ${CARD_BORDER}`,
+            background: "#020617",
+            padding: "2px 0",
+            overflow: "hidden"
+          }}
+        >
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(5, 1fr)",
+              height: "14px"
+            }}
+          >
+            {BANDS_IN_ORDER.map((band, idx) => (
+              <div
+                key={band}
+                style={{
+                  background: LEVEL_COLORS[band],
+                  opacity: level && band === level.band ? 1 : 0.55,
+                  borderRight:
+                    idx === BANDS_IN_ORDER.length - 1
+                      ? "none"
+                      : "1px solid rgba(15,23,42,0.9)"
+                }}
+              />
+            ))}
+          </div>
+
+          {tickPosition != null && (
+            <div
+              style={{
+                position: "absolute",
+                top: -3,
+                bottom: -3,
+                left: `${tickPosition}%`,
+                transform: "translateX(-50%)",
+                width: "2px",
+                borderRadius: "999px",
+                background: "#e5e7eb",
+                boxShadow: "0 0 0 1px rgba(15,23,42,0.9)"
+              }}
+            />
+          )}
+        </div>
+
+        {!level && (
+          <div
+            style={{
+              marginTop: "0.35rem",
+              fontSize: "0.75rem",
+              color: MUTED_TEXT
+            }}
+          >
+            Complete at least one assessment to see your level.
+          </div>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div
       style={{
@@ -1308,197 +1482,43 @@ const DevelopmentRubric: React.FC<DevelopmentRubricProps> = ({
     >
       <div
         style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "baseline",
-          gap: "0.75rem",
           marginBottom: "0.4rem"
         }}
       >
-        <div>
-          <div
-            style={{
-              fontSize: "0.8rem",
-              fontWeight: 600,
-              color: MUTED_TEXT,
-              marginBottom: "0.1rem"
-            }}
-          >
-            Development Level
-          </div>
-          <div
-            style={{
-              fontSize: "0.75rem",
-              color: MUTED_TEXT
-            }}
-          >
-            Based on game bat PBs vs typical elite {benchmarks.label} speeds.
-          </div>
+        <div
+          style={{
+            fontSize: "0.8rem",
+            fontWeight: 600,
+            color: MUTED_TEXT,
+            marginBottom: "0.1rem"
+          }}
+        >
+          Development Level
         </div>
         <div
           style={{
-            fontSize: "0.7rem",
-            color: MUTED_TEXT,
-            textAlign: "right"
+            fontSize: "0.75rem",
+            color: MUTED_TEXT
           }}
         >
-          Elite ≥ 100% • Good ≥ 90% • Average ≥ 80%
+          Based on game bat PBs vs typical elite {benchmarks.label} speeds.
         </div>
       </div>
 
+      {renderRubricRow("Game Bat Speed", batLevel)}
+      {renderRubricRow("Game Bat Exit Velo", veloLevel)}
+
       <div
         style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-          gap: "0.75rem"
+          fontSize: "0.7rem",
+          color: MUTED_TEXT
         }}
       >
-        {/* Game Bat Speed */}
-        <div
-          style={{
-            borderRadius: "10px",
-            border: `1px solid ${CARD_BORDER}`,
-            padding: "0.7rem"
-          }}
-        >
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              marginBottom: "0.25rem"
-            }}
-          >
-            <div
-              style={{
-                fontSize: "0.8rem",
-                fontWeight: 600,
-                color: PRIMARY_TEXT
-              }}
-            >
-              Game Bat Speed
-            </div>
-            {batLevel && (
-              <span
-                style={{
-                  borderRadius: "999px",
-                  padding: "0.1rem 0.55rem",
-                  border: `1px solid ${LEVEL_COLORS[batLevel.band]}`,
-                  color: LEVEL_COLORS[batLevel.band],
-                  fontSize: "0.7rem",
-                  fontWeight: 600
-                }}
-              >
-                {batLevel.band}
-              </span>
-            )}
-          </div>
-          <div
-            style={{
-              fontSize: "1rem",
-              fontWeight: 700,
-              marginBottom: "0.1rem"
-            }}
-          >
-            {batSpeedPb != null ? `${batSpeedPb.toFixed(1)} mph` : "--"}
-          </div>
-          <div
-            style={{
-              fontSize: "0.75rem",
-              color: MUTED_TEXT
-            }}
-          >
-            {batLevel ? (
-              <>
-                {batLevel.percentOfElite.toFixed(0)}% of elite{" "}
-                {benchmarks.label} bat speed (
-                {benchmarks.eliteBatSpeed.toFixed(1)} mph).
-              </>
-            ) : batSpeedPb != null ? (
-              <>
-                Elite benchmark: {benchmarks.eliteBatSpeed.toFixed(1)} mph.
-              </>
-            ) : (
-              <>Complete at least one assessment to see your level.</>
-            )}
-          </div>
-        </div>
-
-        {/* Exit Velo */}
-        <div
-          style={{
-            borderRadius: "10px",
-            border: `1px solid ${CARD_BORDER}`,
-            padding: "0.7rem"
-          }}
-        >
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              marginBottom: "0.25rem"
-            }}
-          >
-            <div
-              style={{
-                fontSize: "0.8rem",
-                fontWeight: 600,
-                color: PRIMARY_TEXT
-              }}
-            >
-              Game Bat Exit Velo
-            </div>
-            {veloLevel && (
-              <span
-                style={{
-                  borderRadius: "999px",
-                  padding: "0.1rem 0.55rem",
-                  border: `1px solid ${LEVEL_COLORS[veloLevel.band]}`,
-                  color: LEVEL_COLORS[veloLevel.band],
-                  fontSize: "0.7rem",
-                  fontWeight: 600
-                }}
-              >
-                {veloLevel.band}
-              </span>
-            )}
-          </div>
-          <div
-            style={{
-              fontSize: "1rem",
-              fontWeight: 700,
-              marginBottom: "0.1rem"
-            }}
-          >
-            {exitVeloPb != null ? `${exitVeloPb.toFixed(1)} mph` : "--"}
-          </div>
-          <div
-            style={{
-              fontSize: "0.75rem",
-              color: MUTED_TEXT
-            }}
-          >
-            {veloLevel ? (
-              <>
-                {veloLevel.percentOfElite.toFixed(0)}% of elite{" "}
-                {benchmarks.label} exit velo (
-                {benchmarks.eliteExitVelo.toFixed(1)} mph).
-              </>
-            ) : exitVeloPb != null ? (
-              <>
-                Elite benchmark: {benchmarks.eliteExitVelo.toFixed(1)} mph.
-              </>
-            ) : (
-              <>Complete at least one assessment to see your level.</>
-            )}
-          </div>
-        </div>
+        Elite ≥ 100% • Good ≥ 90% • Average ≥ 80%
       </div>
     </div>
   );
 };
-
 
 interface PlayerStatsViewProps {
   stats: PlayerStats;
@@ -1510,18 +1530,17 @@ interface PlayerStatsViewProps {
   playerAgeYears?: number | null;
 }
 
-  const PlayerStatsView: React.FC<PlayerStatsViewProps> = ({
-    stats,
-    medalsResponse,
-    medalsLoading,
-    medalsError,
-    onOpenMedals,
-    playerAgeGroup,
-    playerAgeYears
-  }) => {
-    const { personalBest, gains, configBySide, fastestDrills, sessionCounts } =
-      stats;
- 
+const PlayerStatsView: React.FC<PlayerStatsViewProps> = ({
+  stats,
+  medalsResponse,
+  medalsLoading,
+  medalsError,
+  onOpenMedals,
+  playerAgeGroup,
+  playerAgeYears
+}) => {
+  const { personalBest, gains, configBySide, fastestDrills, sessionCounts } =
+    stats;
 
   const veloConfigs: VeloConfigKey[] = [
     "base_bat",
@@ -1530,10 +1549,8 @@ interface PlayerStatsViewProps {
   ];
 
   const getPercentDiff = (config: VeloConfigKey): number | null => {
-    const dom =
-      configBySide[config]?.dominant?.bestBatSpeedMph ?? null;
-    const nonDom =
-      configBySide[config]?.non_dominant?.bestBatSpeedMph ?? null;
+    const dom = configBySide[config]?.dominant?.bestBatSpeedMph ?? null;
+    const nonDom = configBySide[config]?.non_dominant?.bestBatSpeedMph ?? null;
     if (dom == null || dom <= 0 || nonDom == null) return null;
     // positive means non-dom is slower
     const diff = ((dom - nonDom) / dom) * 100;
@@ -1545,7 +1562,7 @@ interface PlayerStatsViewProps {
 
   return (
     <>
-      {/* Top stats + velo bat section (no extra outer card) */}
+      {/* Top stats + rubric + medals */}
       <div style={{ marginBottom: "1rem" }}>
         {/* Game Bat PBs (top section) */}
         <div
@@ -1695,14 +1712,14 @@ interface PlayerStatsViewProps {
           </div>
         </div>
 
-        {/* Development rubric based on PBs and age */}
+        {/* Development rubric based on PBs and age (visual bar + tick) */}
         <DevelopmentRubric
           batSpeedPb={personalBest.batSpeedMph ?? null}
           exitVeloPb={personalBest.exitVeloMph ?? null}
           playerAgeYears={playerAgeYears}
         />
 
-        {/* Medals summary card – just below the PB cards */}
+        {/* Medals summary card – just below the PB/rubric block */}
         <MedalsSummaryCard
           medalsResponse={medalsResponse}
           loading={medalsLoading}
@@ -1889,8 +1906,7 @@ interface PlayerStatsViewProps {
             const dom =
               configBySide[config]?.dominant?.bestBatSpeedMph ?? null;
             const nonDom =
-              configBySide[config]?.non_dominant?.bestBatSpeedMph ??
-              null;
+              configBySide[config]?.non_dominant?.bestBatSpeedMph ?? null;
             const diffPercent = getPercentDiff(config);
 
             const label =
@@ -1898,9 +1914,7 @@ interface PlayerStatsViewProps {
                 ? "Need data on both sides"
                 : diffPercent <= 0
                 ? "Non-dominant is as fast or faster"
-                : `Non-dominant is ${diffPercent.toFixed(
-                    1
-                  )}% slower`;
+                : `Non-dominant is ${diffPercent.toFixed(1)}% slower`;
 
             return (
               <div
@@ -1976,7 +1990,7 @@ const StatsPage: React.FC<StatsPageProps> = ({
   playerIdOverride,
   backLabel = "dashboard"
 }) => {
-  const { currentProfile } = useAuth();
+  const { currentProfile, setCurrentProfile } = useAuth();
   const [stats, setStats] = useState<PlayerStats | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1994,6 +2008,39 @@ const StatsPage: React.FC<StatsPageProps> = ({
   const isOverride = !!playerIdOverride;
   const canViewStats =
     !!targetPlayerId && (isOverride || currentProfile?.role === "player");
+
+  // Ensure currentProfile includes birthdate (fetch full profile once if needed)
+  useEffect(() => {
+    if (!currentProfile) return;
+
+    // If birthdate is already present (including null), don't refetch.
+    // "undefined" means we never loaded it from the backend yet.
+    if (typeof currentProfile.birthdate !== "undefined") return;
+
+    let cancelled = false;
+
+    const loadBirthdate = async () => {
+      try {
+        const full = await fetchProfileById(currentProfile.id);
+        if (cancelled) return;
+
+        // Merge into existing currentProfile and persist to localStorage via AuthContext
+        setCurrentProfile({
+          ...currentProfile,
+          birthdate: full.birthdate ?? null
+        });
+      } catch (err) {
+        console.error("Failed to load profile birthdate", err);
+        // If this fails, we just fall back to "Add your birthdate..." message
+      }
+    };
+
+    loadBirthdate();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentProfile, setCurrentProfile]);
 
   useEffect(() => {
     if (!canViewStats || !targetPlayerId) return;
@@ -2175,8 +2222,7 @@ const StatsPage: React.FC<StatsPageProps> = ({
     " " +
     (currentProfile.last_name ?? "");
 
-  const selfLabel =
-    fullName.trim() || currentProfile.email || "Player";
+  const selfLabel = fullName.trim() || currentProfile.email || "Player";
 
   return (
     <section
@@ -2207,7 +2253,7 @@ const StatsPage: React.FC<StatsPageProps> = ({
 
       {showMedalsGallery ? (
         <>
-          {/* In-page nav back to stats (as requested) */}
+          {/* In-page nav back to stats */}
           <button
             onClick={() => setShowMedalsGallery(false)}
             style={{
