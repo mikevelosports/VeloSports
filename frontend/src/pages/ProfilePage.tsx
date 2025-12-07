@@ -1,8 +1,7 @@
-// frontend/src/pages/ProfilePage.tsx
 import React, { useEffect, useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import { API_BASE_URL } from "../api/client";
-
+import { type LegalDocKey, LEGAL_DOCS } from "../legal/legalText";
 
 const PRIMARY_TEXT = "#e5e7eb";
 const MUTED_TEXT = "#9ca3af";
@@ -313,6 +312,196 @@ const AppSettingsSection: React.FC = () => {
 };
 
 const LegalAndPrivacySection: React.FC = () => {
+  const [activeDocKey, setActiveDocKey] = useState<LegalDocKey | null>(null);
+
+  // We don’t assume a specific shape for LEGAL_DOCS; treat it as flexible.
+  const docs = LEGAL_DOCS as Record<LegalDocKey, any>;
+
+  const formatKeyToTitle = (key: LegalDocKey): string => {
+    const k = String(key).toLowerCase();
+    if (k.includes("terms")) return "Terms of Service";
+    if (k.includes("privacy")) return "Privacy Policy";
+    if (k.includes("data")) return "Data Usage Policy";
+    return String(key)
+      .split(/[_-]/)
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join(" ");
+  };
+
+  const formatShortDescription = (key: LegalDocKey): string => {
+    const k = String(key).toLowerCase();
+    if (k.includes("terms")) {
+      return "The rules and conditions for using the Velo Sports App.";
+    }
+    if (k.includes("privacy")) {
+      return "How we collect, use, and protect your personal information.";
+    }
+    if (k.includes("data")) {
+      return "How your performance and training data is stored, used, and shared.";
+    }
+    return "Details on how Velo handles your account and training data.";
+  };
+
+  const renderListView = () => {
+    const keys = Object.keys(docs) as LegalDocKey[];
+
+    return (
+      <section
+        style={{
+          marginTop: "0.75rem",
+          borderRadius: "12px",
+          border: `1px solid ${CARD_BORDER}`,
+          background: CARD_BG,
+          boxShadow: CARD_SHADOW,
+          padding: "1rem",
+          color: PRIMARY_TEXT
+        }}
+      >
+        <h3
+          style={{
+            margin: "0 0 0.4rem",
+            fontSize: "1rem"
+          }}
+        >
+          Privacy, Data & Terms
+        </h3>
+        <p
+          style={{
+            margin: "0 0 0.5rem",
+            fontSize: "0.85rem",
+            color: MUTED_TEXT
+          }}
+        >
+          Review the full Terms of Service, Privacy Policy, and Data Usage
+          Policy that apply to your Velo Sports account.
+        </p>
+
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+            gap: "0.75rem",
+            marginTop: "0.25rem"
+          }}
+        >
+          {keys.map((key) => {
+            const rawDoc = docs[key];
+            const title =
+              rawDoc &&
+              typeof rawDoc === "object" &&
+              typeof rawDoc.title === "string"
+                ? rawDoc.title
+                : formatKeyToTitle(key);
+
+            const shortDescription =
+              rawDoc &&
+              typeof rawDoc === "object" &&
+              typeof rawDoc.shortDescription === "string"
+                ? rawDoc.shortDescription
+                : formatShortDescription(key);
+
+            return (
+              <article
+                key={key}
+                style={{
+                  borderRadius: "10px",
+                  border: `1px solid ${CARD_BORDER}`,
+                  background:
+                    "radial-gradient(circle at top, rgba(15,23,42,0.9) 0, #020617 65%)",
+                  padding: "0.75rem 0.85rem",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "0.4rem",
+                  fontSize: "0.8rem"
+                }}
+              >
+                <div
+                  style={{
+                    fontWeight: 600,
+                    fontSize: "0.9rem",
+                    color: PRIMARY_TEXT
+                  }}
+                >
+                  {title}
+                </div>
+                <p
+                  style={{
+                    margin: 0,
+                    color: MUTED_TEXT
+                  }}
+                >
+                  {shortDescription}
+                </p>
+                <div
+                  style={{
+                    marginTop: "0.35rem"
+                  }}
+                >
+                  <button
+                    type="button"
+                    onClick={() => setActiveDocKey(key)}
+                    style={{
+                      padding: "0.4rem 0.9rem",
+                      borderRadius: "999px",
+                      border: `1px solid ${ACCENT}`,
+                      background: ACCENT,
+                      color: "#0f172a",
+                      fontSize: "0.8rem",
+                      fontWeight: 600,
+                      cursor: "pointer"
+                    }}
+                  >
+                    View full document
+                  </button>
+                </div>
+              </article>
+            );
+          })}
+        </div>
+
+        <p
+          style={{
+            margin: "0.7rem 0 0",
+            fontSize: "0.75rem",
+            color: MUTED_TEXT
+          }}
+        >
+          These summaries are provided for convenience. The full policies above
+          are the actual legal terms that apply to your use of Velo Sports.
+        </p>
+      </section>
+    );
+  };
+
+  if (!activeDocKey) {
+    return renderListView();
+  }
+
+  const rawDoc = docs[activeDocKey];
+  const content =
+    rawDoc && typeof rawDoc === "object"
+      ? rawDoc.body ?? rawDoc.content ?? rawDoc.text ?? ""
+      : typeof rawDoc === "string"
+      ? rawDoc
+      : "";
+  const docTitle =
+    rawDoc &&
+    typeof rawDoc === "object" &&
+    typeof rawDoc.title === "string"
+      ? rawDoc.title
+      : formatKeyToTitle(activeDocKey);
+  const updatedAt =
+    rawDoc &&
+    typeof rawDoc === "object" &&
+    typeof rawDoc.updatedAt === "string"
+      ? rawDoc.updatedAt
+      : undefined;
+
+  const paragraphs = content
+    .split(/\n{2,}/)
+    .map((chunk: string) => chunk.trim())
+    .filter(Boolean);
+
   return (
     <section
       style={{
@@ -325,60 +514,98 @@ const LegalAndPrivacySection: React.FC = () => {
         color: PRIMARY_TEXT
       }}
     >
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          gap: "0.75rem",
+          alignItems: "center",
+          marginBottom: "0.6rem",
+          flexWrap: "wrap"
+        }}
+      >
+        <button
+          type="button"
+          onClick={() => setActiveDocKey(null)}
+          style={{
+            padding: "0.35rem 0.9rem",
+            borderRadius: "999px",
+            border: `1px solid ${CARD_BORDER}`,
+            background: "transparent",
+            color: MUTED_TEXT,
+            fontSize: "0.8rem",
+            cursor: "pointer"
+          }}
+        >
+          ← Back to profile
+        </button>
+        <div
+          style={{
+            fontSize: "0.75rem",
+            color: MUTED_TEXT
+          }}
+        >
+          You&apos;re viewing a legal document for your Velo account.
+        </div>
+      </div>
+
       <h3
         style={{
-          margin: "0 0 0.4rem",
+          margin: "0 0 0.2rem",
           fontSize: "1rem"
         }}
       >
-        Privacy, Data & Terms
+        {docTitle}
       </h3>
-      <p
+      {updatedAt && (
+        <p
+          style={{
+            margin: "0 0 0.6rem",
+            fontSize: "0.8rem",
+            color: MUTED_TEXT
+          }}
+        >
+          Last updated: {updatedAt}
+        </p>
+      )}
+
+      <div
         style={{
-          margin: "0 0 0.5rem",
-          fontSize: "0.85rem",
-          color: MUTED_TEXT
-        }}
-      >
-        High level summary of how Velo treats your data. This is not a final
-        legal document, but a friendly overview.
-      </p>
-      <ul
-        style={{
-          margin: "0 0 0.4rem 1rem",
-          padding: 0,
+          marginTop: "0.35rem",
+          padding: "0.75rem 0.85rem",
+          borderRadius: "10px",
+          border: `1px solid ${CARD_BORDER}`,
+          background: "#020617",
+          maxHeight: "360px",
+          overflowY: "auto",
           fontSize: "0.8rem",
-          color: MUTED_TEXT,
-          listStyle: "disc"
+          lineHeight: 1.5,
+          whiteSpace: "pre-wrap"
         }}
       >
-        <li>
-          Training and performance data is used to power your{" "}
-          <strong>My Program</strong>, stats, and team views.
-        </li>
-        <li>
-          Coaches only see data for athletes they&apos;re explicitly connected
-          to via teams.
-        </li>
-        <li>
-          We don&apos;t sell your personal data. Any analytics usage will be
-          aggregated and anonymized.
-        </li>
-        <li>
-          If you ever want your account removed, reach out and we&apos;ll help
-          you cleanly delete it.
-        </li>
-      </ul>
-      <p
-        style={{
-          margin: 0,
-          fontSize: "0.75rem",
-          color: MUTED_TEXT
-        }}
-      >
-        Full Terms of Use and Privacy Policy will live on the marketing site and
-        be linked here later.
-      </p>
+        {paragraphs.length > 0 ? (
+          paragraphs.map((para, idx) => (
+            <p
+              key={idx}
+              style={{
+                margin: idx === 0 ? "0 0 0.75rem" : "0.75rem 0 0",
+                color: MUTED_TEXT
+              }}
+            >
+              {para}
+            </p>
+          ))
+        ) : (
+          <p
+            style={{
+              margin: 0,
+              color: MUTED_TEXT
+            }}
+          >
+            The full text for this policy is not available in the app yet.
+          </p>
+        )}
+      </div>
     </section>
   );
 };
@@ -452,8 +679,7 @@ function computeProfileCompleteFromForm(f: FormState): boolean {
   const hasPositions =
     Array.isArray(f.positions_played) && f.positions_played.length > 0;
   const yearsPlayedNum = Number(f.years_played);
-  const hasYearsPlayed =
-    !Number.isNaN(yearsPlayedNum) && yearsPlayedNum > 0;
+  const hasYearsPlayed = !Number.isNaN(yearsPlayedNum) && yearsPlayedNum > 0;
 
   return hasBirthdate && hasSport && hasPositions && hasYearsPlayed;
 }
@@ -626,9 +852,7 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ playerIdOverride }) => {
     };
 
   // Handle file upload for profile photo (stores as data URL in photo_url)
-  const handlePhotoFileChange = (
-    e: React.ChangeEvent<HTMLInputElement>
-  ) => {
+  const handlePhotoFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -792,7 +1016,6 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ playerIdOverride }) => {
     }
   };
 
-
   // Simple meta for display
   const header = targetProfileHeader;
   const fullName = `${header?.first_name ?? ""} ${
@@ -896,7 +1119,9 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ playerIdOverride }) => {
         ? `${form.height_feet}' ${form.height_inches}"`
         : "Not set yet";
 
-    const weightLabel = form.weight_lbs ? `${form.weight_lbs} lbs` : "Not set yet";
+    const weightLabel = form.weight_lbs
+      ? `${form.weight_lbs} lbs`
+      : "Not set yet";
 
     return (
       <>

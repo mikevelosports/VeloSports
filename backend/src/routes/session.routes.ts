@@ -322,7 +322,7 @@ router.get(
 );
 
 /**
- * List sessions for a given player.
+ * List sessions for a given player, enriched with protocol title/category.
  */
 router.get(
   "/players/:playerId/sessions",
@@ -353,20 +353,205 @@ router.get(
           ? Math.max(1, Math.min(500, parseInt(limit, 10)))
           : 200;
 
-      // Prefer ordering by completed_at (most recent completed first),
-      // then by started_at as a fallback.
       query = query
         .order("completed_at", { ascending: false, nullsFirst: false })
         .order("started_at", { ascending: false, nullsFirst: false })
         .limit(limitNumber);
 
-      const { data, error } = await query;
+      const { data: sessions, error } = await query;
 
       if (error) {
         throw error;
       }
 
-      res.json(data ?? []);
+      const rows = sessions ?? [];
+      if (rows.length === 0) {
+        return res.json([]);
+      }
+
+      const protocolIds = Array.from(
+        new Set(
+          rows
+            .map((s: any) => s.protocol_id)
+            .filter((id) => typeof id === "string" && id.length > 0)
+        )
+      );
+
+      if (protocolIds.length === 0) {
+        return res.json(rows);
+      }
+
+      const { data: protocols, error: protocolError } =
+        await supabaseAdmin
+          .from("protocols")
+          .select("id, title, category")
+          .in("id", protocolIds);
+
+      if (protocolError) {
+        throw protocolError;
+      }
+
+      const protocolById = new Map<string, any>();
+      (protocols ?? []).forEach((p: any) => {
+        protocolById.set(p.id, p);
+      });
+
+      const enriched = rows.map((s: any) => {
+        const p = protocolById.get(s.protocol_id);
+        return {
+          ...s,
+          protocol_title: p?.title ?? null,
+          protocol_category: p?.category ?? null
+        };
+      });
+
+      res.json(enriched);
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/**
+ * Quick-complete a protocol for a player (no data collection).
+ * Creates a session and immediately marks it completed, then
+ * updates program state and awards medals.
+ */
+router.post(
+  "/players/:playerId/sessions/quick-complete",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { playerId } = req.params;
+      const { protocol_title, created_by_profile_id, notes } = req.body as {
+        protocol_title?: string;
+        created_by_profile_id?: string;
+        notes?: string;
+      };
+
+      if (!playerId) {
+        return res.status(400).json({ error: "playerId is required" });
+      }
+      if (!protocol_title || !created_by_profile_id) {
+        return res.status(400).json({
+          error: "protocol_title and created_by_profile_id are required"
+        });
+      }
+
+      // Ensure player exists and is role 'player'
+      const { data: player, error: playerError } = await supabaseAdmin
+        .from("profiles")
+        .select("id, role")
+        .eq("id", playerId)
+        .single();
+
+      if (playerError) throw playerError;
+      if (!player || player.role !== "player") {
+        return res
+          .status(400)
+          .json({ error: "playerId must refer to a player profile" });
+      }
+
+      // Get creator role
+      const { data: creator, error: creatorError } = await supabaseAdmin
+        .from("profiles")
+        .select("id, role")
+        .eq("id", created_by_profile_id)
+        .single();
+
+      if (creatorError) throw creatorError;
+      if (!creator) {
+        return res
+          .status(400)
+          .json({ error: "created_by_profile_id not found" });
+      }
+
+      // Find protocol by title (case-insensitive)
+      const { data: protocols, error: protocolError } = await supabaseAdmin
+        .from("protocols")
+        .select("id, title, category, is_assessment")
+        .ilike("title", protocol_title)
+        .limit(1);
+
+      if (protocolError) throw protocolError;
+      if (!protocols || protocols.length === 0) {
+        return res
+          .status(404)
+          .json({ error: `Protocol not found for title "${protocol_title}"` });
+      }
+
+      const protocol = protocols[0];
+
+      const nowIso = new Date().toISOString();
+
+      const { data: session, error: sessionError } = await supabaseAdmin
+        .from("sessions")
+        .insert({
+          player_id: playerId,
+          protocol_id: protocol.id,
+          created_by_profile_id,
+          created_by_role: creator.role,
+          notes: notes ?? null,
+          status: "completed",
+          started_at: nowIso,
+          completed_at: nowIso
+        })
+        .select("*")
+        .single();
+
+      if (sessionError) {
+        throw sessionError;
+      }
+
+      // Best-effort update of program state
+      try {
+        await updatePlayerProgramStateForSession(session.id);
+      } catch (stateErr) {
+        console.error(
+          "[sessions] Failed to update player_program_state for quick-complete session",
+          session.id,
+          stateErr
+        );
+      }
+
+      // Best-effort medal awarding
+      let newlyAwarded: any[] = [];
+      try {
+        const category = (protocol.category || "").toLowerCase();
+        const isAssessment = !!protocol.is_assessment;
+
+        const eventCodes: string[] = ["session_completed"];
+        if (category) {
+          eventCodes.push(`session_completed:${category}`);
+        }
+        if (isAssessment) {
+          eventCodes.push("session_completed:assessment");
+        }
+
+        const medalResult = await awardMedalsForPlayerEvents({
+          playerId: session.player_id,
+          eventCodes,
+          source: "session_completed",
+          context: {
+            session_id: session.id,
+            protocol_id: protocol.id,
+            protocol_title: protocol.title ?? null,
+            category
+          }
+        });
+
+        newlyAwarded = medalResult?.newlyAwarded ?? [];
+      } catch (medalErr) {
+        console.error(
+          "[sessions] Failed to award medals for quick-complete session",
+          session.id,
+          medalErr
+        );
+      }
+
+      return res.status(201).json({
+        session,
+        newly_awarded_medals: newlyAwarded
+      });
     } catch (err) {
       next(err);
     }

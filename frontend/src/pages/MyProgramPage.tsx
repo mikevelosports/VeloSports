@@ -1,11 +1,12 @@
-// frontend/src/pages/MyProgramPage.tsx
 import React, { useMemo, useState, useEffect } from "react";
 import { useAuth } from "../context/AuthContext";
 import {
   generateProgramSchedule,
   type ProgramConfig,
   type ProgramState,
-  type Weekday
+  type Weekday,
+  type SessionBlock,
+  type DayPlan
 } from "../program/programEngine";
 import {
   fetchPlayerProgramState,
@@ -17,19 +18,21 @@ import {
 } from "../api/programState";
 import {
   fetchPlayerSessionsForPlayer,
-  type PlayerSessionSummary
+  type PlayerSessionSummary,
+  quickCompleteProtocolForPlayer
 } from "../api/sessions";
 
 const PRIMARY_TEXT = "#e5e7eb";
 const MUTED_TEXT = "#9ca3af";
 const CARD_BG = "#020617";
 const CARD_BORDER = "rgba(148,163,184,0.4)";
-const ACCENT = "#22c55e";
+const ACCENT = "#22c55e"; // green: current planned training days
 
-const BLUE = "#38bdf8";           // game-day blue
-const COMPLETED_BLUE = "#60a5fa";  // completed-day blue
-const AMBER = "#f59e0b";
-const RED = "#ef4444";             // keep red for errors / warnings
+const BLUE = "#38bdf8"; // blue accents / quick-complete button
+const COMPLETED_BLUE = "#60a5fa"; // completed-day blue (calendar)
+const AMBER = "#f59e0b"; // amber: future training days
+const YELLOW = "#facc15"; // lighter yellow: game days
+const RED = "#ef4444"; // keep red for errors / warnings
 
 interface MyProgramPageProps {
   onBack: () => void;
@@ -103,6 +106,103 @@ const protocolAbbreviation = (title: string): string => {
   return title;
 };
 
+// Heuristic: detect Overspeed sessions from protocol metadata / notes
+const isOverspeedSession = (s: PlayerSessionSummary): boolean => {
+  const anySession: any = s as any;
+
+  const categoryRaw =
+    anySession.protocol_category ??
+    anySession.protocol?.category ??
+    anySession.protocols?.category ??
+    "";
+  const titleRaw =
+    anySession.protocol_title ??
+    anySession.protocol?.title ??
+    anySession.protocols?.title ??
+    "";
+  const notesRaw = s.notes ?? "";
+
+  const category = String(categoryRaw || "").toLowerCase();
+  const title = String(titleRaw || "").toLowerCase();
+  const notes = String(notesRaw || "").toLowerCase();
+
+  if (category.includes("overspeed")) return true;
+  if (title.includes("overspeed")) return true;
+  if (notes.includes("overspeed")) return true;
+
+  return false;
+};
+
+// Helpers for warm-ups / mechanics and day completion
+
+const isWarmupBlock = (b: SessionBlock): boolean =>
+  b.kind === "DYNAMIC_WARMUP" || b.kind === "PREGAME_WARMUP";
+
+// Which block types we allow quick-complete from the Program page
+const isQuickCompletableBlock = (b: SessionBlock): boolean =>
+  isWarmupBlock(b) ||
+  b.kind === "PM_GROUND_FORCE" ||
+  b.kind === "PM_SEQUENCING" ||
+  b.kind === "PM_BAT_DELIVERY";
+
+// Blocks that we consider "data-collecting" for day completion logic
+const isDataCollectingBlock = (b: SessionBlock): boolean => !isWarmupBlock(b);
+
+const normalizeProtocolTitle = (title: string | null | undefined): string =>
+  (title || "").trim().toLowerCase();
+
+const getSessionProtocolTitle = (s: PlayerSessionSummary): string => {
+  const anySession: any = s as any;
+  return (
+    anySession.protocol_title ??
+    anySession.protocol?.title ??
+    anySession.protocols?.title ??
+    "" // fallback
+  );
+};
+
+const isBlockCompletedBySessions = (
+  block: SessionBlock,
+  sessions: PlayerSessionSummary[]
+): boolean => {
+  const target = normalizeProtocolTitle(block.protocolTitle);
+  if (!target) return false;
+
+  return sessions.some((s) => {
+    const t = normalizeProtocolTitle(getSessionProtocolTitle(s));
+    return t === target;
+  });
+};
+
+/**
+ * A training day is "completed" when:
+ *  - there is at least one completed session that day, and
+ *  - for scheduled training days, every data-collecting block
+ *    has a matching completed session.
+ * For non-scheduled days, any completed session counts.
+ */
+const isTrainingDayCompleted = (
+  plan: DayPlan | null,
+  sessionsForDate: PlayerSessionSummary[]
+): boolean => {
+  if (sessionsForDate.length === 0) return false;
+
+  if (!plan || !plan.isTrainingDay || plan.blocks.length === 0) {
+    // No explicit plan – any completed work counts as completion.
+    return true;
+  }
+
+  const blocksToCheck = plan.blocks.filter(isDataCollectingBlock);
+  if (blocksToCheck.length === 0) {
+    // Only warm-ups in the plan; any completed session is enough.
+    return true;
+  }
+
+  return blocksToCheck.every((b) =>
+    isBlockCompletedBySessions(b, sessionsForDate)
+  );
+};
+
 const phaseLabel = (phase: ProgramState["currentPhase"]): string => {
   if (phase.startsWith("RAMP")) return "Ramp‑up";
   if (phase.startsWith("PRIMARY")) return "Primary";
@@ -156,7 +256,9 @@ const getPhaseDotColor = (phaseType: PhaseTypeUI): string => {
   }
 };
 
-const computePhaseProgress = (state: ProgramState | null): PhaseProgressInfo | null => {
+const computePhaseProgress = (
+  state: ProgramState | null
+): PhaseProgressInfo | null => {
   if (!state) return null;
 
   const phaseType = getPhaseType(state.currentPhase);
@@ -269,7 +371,7 @@ const MyProgramPage: React.FC<MyProgramPageProps> = ({
   const [settingsExpanded, setSettingsExpanded] = useState<boolean>(true);
   const [resettingProgram, setResettingProgram] = useState(false);
   const [scheduleGenerated, setScheduleGenerated] = useState(false);
-
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
 
   const [calendarMonth, setCalendarMonth] = useState<Date>(() =>
     getMonthStart(new Date())
@@ -284,6 +386,34 @@ const MyProgramPage: React.FC<MyProgramPageProps> = ({
     useState<string | null>(null);
   const [showAllCompletedSessions, setShowAllCompletedSessions] =
     useState(false);
+
+  const [quickCompleteLoading, setQuickCompleteLoading] = useState(false);
+  const [quickCompleteError, setQuickCompleteError] = useState<string | null>(
+    null
+  );
+
+  const completedOverspeedDates = useMemo(() => {
+    const set = new Set<string>();
+    const today = todayIso();
+
+    for (const s of completedSessions) {
+      if (s.status !== "completed") continue;
+      if (!isOverspeedSession(s)) continue;
+
+      const source =
+        (s.completed_at as string | null) ??
+        (s.started_at as string | null) ??
+        null;
+      if (!source) continue;
+
+      const dateIso = source.slice(0, 10);
+      if (!dateIso || dateIso > today) continue;
+
+      set.add(dateIso);
+    }
+
+    return Array.from(set);
+  }, [completedSessions]);
 
   const initialState: ProgramState = useMemo(() => {
     if (apiProgramState) {
@@ -332,8 +462,11 @@ const MyProgramPage: React.FC<MyProgramPageProps> = ({
   );
 
   const schedule = useMemo(
-    () => generateProgramSchedule(config, initialState),
-    [config, initialState]
+    () =>
+      generateProgramSchedule(config, initialState, {
+        completedOverspeedDates
+      }),
+    [config, initialState, completedOverspeedDates]
   );
 
   const allScheduleDays = useMemo(
@@ -360,8 +493,7 @@ const MyProgramPage: React.FC<MyProgramPageProps> = ({
     const today = todayIso();
     return allScheduleDays
       .filter(
-        (d) =>
-          d.isTrainingDay && d.blocks.length > 0 && d.date >= today
+        (d) => d.isTrainingDay && d.blocks.length > 0 && d.date >= today
       )
       .sort((a, b) => a.date.localeCompare(b.date));
   }, [allScheduleDays]);
@@ -442,8 +574,7 @@ const MyProgramPage: React.FC<MyProgramPageProps> = ({
   }, [completedSessions]);
 
   const selectedDayPlan = useMemo(
-    () =>
-      selectedDate ? scheduleDayByDate.get(selectedDate) ?? null : null,
+    () => (selectedDate ? scheduleDayByDate.get(selectedDate) ?? null : null),
     [scheduleDayByDate, selectedDate]
   );
 
@@ -535,6 +666,7 @@ const MyProgramPage: React.FC<MyProgramPageProps> = ({
       setScheduleGenerated(false);
       setSelectedDate(null);
       setCalendarMonth(getMonthStart(new Date()));
+      setShowResetConfirm(false);
     } catch (err: any) {
       setProgramStateError(err?.message ?? "Failed to reset program");
     } finally {
@@ -592,6 +724,39 @@ const MyProgramPage: React.FC<MyProgramPageProps> = ({
     }
   };
 
+  /**
+   * Quick-complete a block (warm-up / mechanics etc.) for the current player.
+   * NOTE: We don't currently override the session date; the date is "now".
+   * UI uses completedSessions to hide completed blocks from planned lists.
+   */
+  const handleQuickCompleteBlock = async (block: SessionBlock) => {
+    if (!currentProfile || !targetPlayerId) return;
+
+    try {
+      setQuickCompleteError(null);
+      setQuickCompleteLoading(true);
+
+      await quickCompleteProtocolForPlayer({
+        playerId: targetPlayerId,
+        protocolTitle: block.protocolTitle,
+        createdByProfileId: currentProfile.id
+      });
+
+      // Refresh completed sessions so calendar / lists update
+      const sessions = await fetchPlayerSessionsForPlayer(targetPlayerId, {
+        status: "completed",
+        limit: 200
+      });
+      setCompletedSessions(sessions);
+    } catch (err: any) {
+      setQuickCompleteError(
+        err?.message ?? "Failed to mark protocol complete"
+      );
+    } finally {
+      setQuickCompleteLoading(false);
+    }
+  };
+
   if (!currentProfile) return null;
 
   const fullName =
@@ -639,10 +804,23 @@ const MyProgramPage: React.FC<MyProgramPageProps> = ({
     const isTrainingDay = plan
       ? plan.isTrainingDay
       : trainingDays.includes(weekday);
+
+    const completedForDay = completedSessionsByDate.get(selectedDate) ?? [];
+
     const hasPlannedBlocks =
       !!plan && plan.isTrainingDay && plan.blocks.length > 0;
-    const completedForDay = completedSessionsByDate.get(selectedDate) ?? [];
-    const isCompletedDay = completedForDay.length > 0;
+
+    const uncompletedPlannedBlocks =
+      plan && plan.isTrainingDay
+        ? plan.blocks.filter(
+            (b) => !isBlockCompletedBySessions(b, completedForDay)
+          )
+        : [];
+
+    const hasRemainingPlannedBlocks = uncompletedPlannedBlocks.length > 0;
+
+    const isCompletedDay = isTrainingDayCompleted(plan ?? null, completedForDay);
+
     const isFutureTrainingDay =
       isTrainingDay &&
       !hasPlannedBlocks &&
@@ -658,6 +836,8 @@ const MyProgramPage: React.FC<MyProgramPageProps> = ({
       isGameDay,
       isTrainingDay,
       hasPlannedBlocks,
+      hasRemainingPlannedBlocks,
+      uncompletedPlannedBlocks,
       completedForDay,
       isCompletedDay,
       isFutureTrainingDay,
@@ -688,6 +868,20 @@ const MyProgramPage: React.FC<MyProgramPageProps> = ({
     // Only show most recent 5 by default
     return recentCompletedSessionsSorted.slice(0, 5);
   }, [recentCompletedSessionsSorted, showAllCompletedSessions]);
+
+  /**
+   * Upcoming sessions with only the remaining (uncompleted) blocks for each day.
+   * Days with all blocks completed are removed from this list.
+   */
+  const upcomingSessionsWithRemaining = upcomingSessions
+    .map((day) => {
+      const completedForDay = completedSessionsByDate.get(day.date) ?? [];
+      const remainingBlocks = day.blocks.filter(
+        (b) => !isBlockCompletedBySessions(b, completedForDay)
+      );
+      return { day, completedForDay, remainingBlocks };
+    })
+    .filter((entry) => entry.remainingBlocks.length > 0);
 
   return (
     <section
@@ -922,15 +1116,18 @@ const MyProgramPage: React.FC<MyProgramPageProps> = ({
               </button>
               <button
                 type="button"
-                onClick={handleResetProgram}
+                onClick={() => setShowResetConfirm(true)}
                 disabled={resettingProgram}
                 style={{
                   padding: "0.35rem 0.8rem",
                   borderRadius: "999px",
-                  border: `1px solid ${CARD_BORDER}`,
-                  background: "#020617",
-                  color: PRIMARY_TEXT,
+                  border: `1px solid ${RED}`,
+                  background: resettingProgram
+                    ? "rgba(239,68,68,0.9)"
+                    : "rgba(239,68,68,0.15)",
+                  color: RED,
                   fontSize: "0.8rem",
+                  fontWeight: 600,
                   cursor: "pointer",
                   opacity: resettingProgram ? 0.7 : 1
                 }}
@@ -938,6 +1135,77 @@ const MyProgramPage: React.FC<MyProgramPageProps> = ({
                 {resettingProgram ? "Resetting…" : "Reset program"}
               </button>
             </div>
+
+            {showResetConfirm && (
+              <div
+                style={{
+                  marginTop: "0.35rem",
+                  padding: "0.6rem 0.75rem",
+                  borderRadius: "10px",
+                  border: `1px solid ${RED}`,
+                  background: "rgba(239,68,68,0.10)",
+                  maxWidth: "320px"
+                }}
+              >
+                <p
+                  style={{
+                    margin: 0,
+                    marginBottom: "0.4rem",
+                    fontSize: "0.75rem",
+                    color: RED,
+                    lineHeight: 1.4
+                  }}
+                >
+                  WARNING: This will reset your current phase back to the
+                  beginning. Only do this if you want to completely start the
+                  program over from the beginning. This action cannot be undone.
+                </p>
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "flex-end",
+                    gap: "0.4rem",
+                    marginTop: "0.3rem"
+                  }}
+                >
+                  <button
+                    type="button"
+                    onClick={() => setShowResetConfirm(false)}
+                    disabled={resettingProgram}
+                    style={{
+                      padding: "0.25rem 0.7rem",
+                      borderRadius: "999px",
+                      border: `1px solid ${CARD_BORDER}`,
+                      background: "#020617",
+                      color: PRIMARY_TEXT,
+                      fontSize: "0.75rem",
+                      cursor: "pointer",
+                      opacity: resettingProgram ? 0.7 : 1
+                    }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleResetProgram}
+                    disabled={resettingProgram}
+                    style={{
+                      padding: "0.25rem 0.9rem",
+                      borderRadius: "999px",
+                      border: "none",
+                      background: RED,
+                      color: "#0f172a",
+                      fontWeight: 600,
+                      fontSize: "0.8rem",
+                      cursor: "pointer",
+                      opacity: resettingProgram ? 0.7 : 1
+                    }}
+                  >
+                    {resettingProgram ? "Resetting…" : "Confirm program reset"}
+                  </button>
+                </div>
+              </div>
+            )}
 
             {isMaintenancePhase && apiProgramState && (
               <div
@@ -1056,9 +1324,6 @@ const MyProgramPage: React.FC<MyProgramPageProps> = ({
                 <select
                   value={inSeason ? "in" : "off"}
                   onChange={(e) => setInSeason(e.target.value === "in")}
-                  onChangeCapture={(e: any) =>
-                    setInSeason(e.target.value === "in")
-                  }
                   style={{
                     width: "100%",
                     marginTop: "0.25rem",
@@ -1233,11 +1498,7 @@ const MyProgramPage: React.FC<MyProgramPageProps> = ({
                         key={d}
                         type="button"
                         onClick={() =>
-                          handleToggleDay(
-                            d,
-                            trainingDays,
-                            setTrainingDays
-                          )
+                          handleToggleDay(d, trainingDays, setTrainingDays)
                         }
                         style={{
                           padding: "0.25rem 0.7rem",
@@ -1283,16 +1544,14 @@ const MyProgramPage: React.FC<MyProgramPageProps> = ({
                         <button
                           key={d}
                           type="button"
-                          onClick={() =>
-                            handleToggleDay(d, gameDays, setGameDays)
-                          }
+                          onClick={() => handleToggleDay(d, gameDays, setGameDays)}
                           style={{
                             padding: "0.25rem 0.7rem",
                             borderRadius: "999px",
                             border: `1px solid ${
-                              isActive ? BLUE : "rgba(75,85,99,0.8)"
+                              isActive ? YELLOW : "rgba(75,85,99,0.8)"
                             }`,
-                            background: isActive ? BLUE : "#020617",
+                            background: isActive ? YELLOW : "#020617",
                             color: isActive ? "#0f172a" : PRIMARY_TEXT,
                             fontSize: "0.8rem",
                             cursor: "pointer"
@@ -1467,7 +1726,7 @@ const MyProgramPage: React.FC<MyProgramPageProps> = ({
                     width: "10px",
                     height: "10px",
                     borderRadius: "999px",
-                    background: BLUE
+                    background: YELLOW
                   }}
                 />
                 <span>Game day</span>
@@ -1552,7 +1811,10 @@ const MyProgramPage: React.FC<MyProgramPageProps> = ({
 
                 const completedForDay =
                   completedSessionsByDate.get(isoDate) ?? [];
-                const isCompletedDay = completedForDay.length > 0;
+                const isCompletedDay = isTrainingDayCompleted(
+                  scheduleDay ?? null,
+                  completedForDay
+                );
 
                 const isFutureTrainingDay =
                   baseIsTrainingDay &&
@@ -1570,22 +1832,26 @@ const MyProgramPage: React.FC<MyProgramPageProps> = ({
                 let pillBg: string | null = null;
 
                 if (isCompletedDay) {
+                  // Completed day: blue
                   bgColor = "rgba(96,165,250,0.18)";
                   borderColor = COMPLETED_BLUE;
                   pillLabel = "Completed";
                   pillBg = COMPLETED_BLUE;
                 } else if (baseIsGameDay) {
-                  bgColor = "rgba(56,189,248,0.14)";
-                  borderColor = BLUE;
+                  // Game day: lighter yellow
+                  bgColor = "rgba(250,204,21,0.16)";
+                  borderColor = YELLOW;
                   pillLabel = "Game";
-                  pillBg = BLUE;
+                  pillBg = YELLOW;
                 } else if (hasPlannedBlocks) {
+                  // Currently scheduled training day: green
                   bgColor = "rgba(34,197,94,0.20)";
                   borderColor = ACCENT;
                   pillLabel = scheduleDay?.isOverspeedDay ? "OS" : "Train";
                   pillBg = ACCENT;
                 } else if (isFutureTrainingDay) {
-                  bgColor = "rgba(245,158,11,0.15)";
+                  // Future training day beyond 2-week horizon: amber
+                  bgColor = "rgba(245,158,11,0.18)";
                   borderColor = AMBER;
                   pillLabel = "Future";
                   pillBg = AMBER;
@@ -1787,9 +2053,9 @@ const MyProgramPage: React.FC<MyProgramPageProps> = ({
                   </div>
                 )}
 
-                {/* Planned blocks */}
+                {/* Planned blocks (only remaining / uncompleted) */}
                 {selectedDayPlan &&
-                  selectedDateMeta.hasPlannedBlocks && (
+                  selectedDateMeta.hasRemainingPlannedBlocks && (
                     <>
                       <div
                         style={{
@@ -1812,7 +2078,7 @@ const MyProgramPage: React.FC<MyProgramPageProps> = ({
                           gap: "0.35rem"
                         }}
                       >
-                        {selectedDayPlan.blocks.map((b, idx) => {
+                        {selectedDateMeta.uncompletedPlannedBlocks.map((b, idx) => {
                           const abbr = protocolAbbreviation(b.protocolTitle);
                           const canStart =
                             selectedDateMeta.allowStartForPlannedBlocks;
@@ -1824,26 +2090,52 @@ const MyProgramPage: React.FC<MyProgramPageProps> = ({
                                 {b.minutes.toFixed(1)} min
                               </span>
                               {canStart ? (
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    onStartProtocolFromProgram(
-                                      b.protocolTitle
-                                    )
-                                  }
-                                  style={{
-                                    marginLeft: "0.5rem",
-                                    padding: "0.2rem 0.6rem",
-                                    borderRadius: "999px",
-                                    border: `1px solid ${ACCENT}`,
-                                    background: "transparent",
-                                    color: ACCENT,
-                                    fontSize: "0.7rem",
-                                    cursor: "pointer"
-                                  }}
-                                >
-                                  Start
-                                </button>
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      onStartProtocolFromProgram(
+                                        b.protocolTitle
+                                      )
+                                    }
+                                    style={{
+                                      marginLeft: "0.5rem",
+                                      padding: "0.2rem 0.6rem",
+                                      borderRadius: "999px",
+                                      border: `1px solid ${ACCENT}`,
+                                      background: "transparent",
+                                      color: ACCENT,
+                                      fontSize: "0.7rem",
+                                      cursor: "pointer"
+                                    }}
+                                  >
+                                    Start
+                                  </button>
+                                  {isQuickCompletableBlock(b) && (
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        handleQuickCompleteBlock(b)
+                                      }
+                                      disabled={quickCompleteLoading}
+                                      style={{
+                                        marginLeft: "0.35rem",
+                                        padding: "0.2rem 0.6rem",
+                                        borderRadius: "999px",
+                                        border: `1px solid ${BLUE}`,
+                                        background: "transparent",
+                                        color: BLUE,
+                                        fontSize: "0.7rem",
+                                        cursor: quickCompleteLoading
+                                          ? "default"
+                                          : "pointer",
+                                        opacity: quickCompleteLoading ? 0.6 : 1
+                                      }}
+                                    >
+                                      Complete
+                                    </button>
+                                  )}
+                                </>
                               ) : (
                                 <span
                                   style={{
@@ -1909,7 +2201,14 @@ const MyProgramPage: React.FC<MyProgramPageProps> = ({
             <h3 style={{ marginTop: 0, marginBottom: "0.5rem" }}>
               Upcoming sessions (next 2 weeks)
             </h3>
-            {upcomingSessions.length === 0 ? (
+
+            {quickCompleteError && (
+              <p style={{ fontSize: "0.8rem", color: RED, marginTop: 0 }}>
+                {quickCompleteError}
+              </p>
+            )}
+
+            {upcomingSessionsWithRemaining.length === 0 ? (
               <p style={{ fontSize: "0.85rem", color: MUTED_TEXT }}>
                 No training sessions scheduled in the next two weeks with your
                 current settings.
@@ -1922,118 +2221,151 @@ const MyProgramPage: React.FC<MyProgramPageProps> = ({
                   gap: "0.5rem"
                 }}
               >
-                {upcomingSessions.map((day) => {
-                  const completedForDay =
-                    completedSessionsByDate.get(day.date) ?? [];
-                  const isCompletedDay = completedForDay.length > 0;
-                  const today = todayIso();
-                  const canStart = day.date >= today && !isCompletedDay;
-                  const dateLabel = formatDisplayDate(day.date);
+                {upcomingSessionsWithRemaining.map(
+                  ({ day, completedForDay, remainingBlocks }) => {
+                    const isCompletedDay = isTrainingDayCompleted(
+                      day as DayPlan,
+                      completedForDay
+                    );
+                    const today = todayIso();
+                    const canStart = day.date >= today && !isCompletedDay;
+                    const dateLabel = formatDisplayDate(day.date);
 
-                  return (
-                    <div
-                      key={day.date}
-                      style={{
-                        borderRadius: "10px",
-                        border: `1px solid ${CARD_BORDER}`,
-                        padding: "0.6rem 0.75rem",
-                        background: "#020617"
-                      }}
-                    >
+                    return (
                       <div
+                        key={day.date}
                         style={{
-                          display: "flex",
-                          justifyContent: "space-between",
-                          alignItems: "center",
-                          marginBottom: "0.15rem"
+                          borderRadius: "10px",
+                          border: `1px solid ${CARD_BORDER}`,
+                          padding: "0.6rem 0.75rem",
+                          background: "#020617"
                         }}
                       >
-                        <div
-                          style={{
-                            fontSize: "0.85rem",
-                            fontWeight: 600,
-                            color: PRIMARY_TEXT
-                          }}
-                        >
-                          {dateLabel} · {weekdayLabel(day.weekday)}
-                        </div>
                         <div
                           style={{
                             display: "flex",
+                            justifyContent: "space-between",
                             alignItems: "center",
-                            gap: "0.4rem",
-                            fontSize: "0.7rem"
+                            marginBottom: "0.15rem"
                           }}
                         >
-                          {day.isGameDay && (
-                            <span style={{ color: MUTED_TEXT }}>Game day</span>
-                          )}
-                          {isCompletedDay && (
-                            <span style={{ color: COMPLETED_BLUE }}>
-                              Completed
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                      <ul
-                        style={{
-                          margin: 0,
-                          paddingLeft: "1.1rem",
-                          fontSize: "0.8rem",
-                          color: PRIMARY_TEXT,
-                          display: "flex",
-                          flexDirection: "column",
-                          gap: "0.3rem"
-                        }}
-                      >
-                        {day.blocks.map((b, idx) => {
-                          const abbr = protocolAbbreviation(b.protocolTitle);
-                          return (
-                            <li key={idx}>
-                              <span style={{ fontWeight: 600 }}>{abbr}</span>{" "}
+                          <div
+                            style={{
+                              fontSize: "0.85rem",
+                              fontWeight: 600,
+                              color: PRIMARY_TEXT
+                            }}
+                          >
+                            {dateLabel} · {weekdayLabel(day.weekday)}
+                          </div>
+                          <div
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: "0.4rem",
+                              fontSize: "0.7rem"
+                            }}
+                          >
+                            {day.isGameDay && (
                               <span style={{ color: MUTED_TEXT }}>
-                                · {b.protocolTitle} ·{" "}
-                                {b.minutes.toFixed(1)} min
+                                Game day
                               </span>
-                              {canStart ? (
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    onStartProtocolFromProgram(
-                                      b.protocolTitle
-                                    )
-                                  }
-                                  style={{
-                                    marginLeft: "0.5rem",
-                                    padding: "0.2rem 0.6rem",
-                                    borderRadius: "999px",
-                                    border: `1px solid ${ACCENT}`,
-                                    background: "transparent",
-                                    color: ACCENT,
-                                    fontSize: "0.7rem",
-                                    cursor: "pointer"
-                                  }}
-                                >
-                                  Start
-                                </button>
-                              ) : (
-                                <span
-                                  style={{
-                                    marginLeft: "0.5rem",
-                                    fontSize: "0.7rem",
-                                    color: COMPLETED_BLUE
-                                  }}
-                                >
-                                  Completed / past day
+                            )}
+                            {isCompletedDay && (
+                              <span style={{ color: COMPLETED_BLUE }}>
+                                Completed
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <ul
+                          style={{
+                            margin: 0,
+                            paddingLeft: "1.1rem",
+                            fontSize: "0.8rem",
+                            color: PRIMARY_TEXT,
+                            display: "flex",
+                            flexDirection: "column",
+                            gap: "0.3rem"
+                          }}
+                        >
+                          {remainingBlocks.map((b, idx) => {
+                            const abbr = protocolAbbreviation(b.protocolTitle);
+                            return (
+                              <li key={idx}>
+                                <span style={{ fontWeight: 600 }}>{abbr}</span>{" "}
+                                <span style={{ color: MUTED_TEXT }}>
+                                  · {b.protocolTitle} ·{" "}
+                                  {b.minutes.toFixed(1)} min
                                 </span>
-                              )}
-                            </li>
-                          );
-                        })}
-                      </ul>
-                    </div>
-                  );
-                })}
+                                {canStart ? (
+                                  <>
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        onStartProtocolFromProgram(
+                                          b.protocolTitle
+                                        )
+                                      }
+                                      style={{
+                                        marginLeft: "0.5rem",
+                                        padding: "0.2rem 0.6rem",
+                                        borderRadius: "999px",
+                                        border: `1px solid ${ACCENT}`,
+                                        background: "transparent",
+                                        color: ACCENT,
+                                        fontSize: "0.7rem",
+                                        cursor: "pointer"
+                                      }}
+                                    >
+                                      Start
+                                    </button>
+                                    {isQuickCompletableBlock(b) && (
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          handleQuickCompleteBlock(b)
+                                        }
+                                        disabled={quickCompleteLoading}
+                                        style={{
+                                          marginLeft: "0.35rem",
+                                          padding: "0.2rem 0.6rem",
+                                          borderRadius: "999px",
+                                          border: `1px solid ${BLUE}`,
+                                          background: "transparent",
+                                          color: BLUE,
+                                          fontSize: "0.7rem",
+                                          cursor: quickCompleteLoading
+                                            ? "default"
+                                            : "pointer",
+                                          opacity: quickCompleteLoading
+                                            ? 0.6
+                                            : 1
+                                        }}
+                                      >
+                                        Complete
+                                      </button>
+                                    )}
+                                  </>
+                                ) : (
+                                  <span
+                                    style={{
+                                      marginLeft: "0.5rem",
+                                      fontSize: "0.7rem",
+                                      color: COMPLETED_BLUE
+                                    }}
+                                  >
+                                    Completed / past day
+                                  </span>
+                                )}
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      </div>
+                    );
+                  }
+                )}
               </div>
             )}
           </div>

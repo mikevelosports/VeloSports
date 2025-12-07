@@ -204,3 +204,41 @@ export async function fetchPlayerSessionsForPlayer(
 
   return [];
 }
+
+export interface QuickCompleteInput {
+  playerId: string;
+  protocolTitle: string;
+  createdByProfileId: string;
+  notes?: string;
+}
+
+/**
+ * Quick-complete a protocol (warm-up/mechanics, etc.) for a player.
+ * Creates a session and marks it completed in one call.
+ */
+export async function quickCompleteProtocolForPlayer(
+  input: QuickCompleteInput
+): Promise<SessionCompletionResult> {
+  const res = await fetch(
+    `${API_BASE_URL}/players/${input.playerId}/sessions/quick-complete`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        protocol_title: input.protocolTitle,
+        created_by_profile_id: input.createdByProfileId,
+        notes: input.notes ?? null
+      })
+    }
+  );
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(
+      `Failed to quick-complete session: ${res.status} ${text.slice(0, 200)}`
+    );
+  }
+
+  return res.json();
+}
+

@@ -12,9 +12,139 @@ interface CreateUserBody {
   firstName?: string;
   lastName?: string;
   phone?: string;
+  birthdate?: string; // ISO YYYY-MM-DD (optional for admin seeding)
 }
 
+interface SignupBody {
+  email: string;
+  password: string;
+  role: Role;
+  firstName?: string;
+  lastName?: string;
+  phone?: string;
+  birthdate?: string; // ISO YYYY-MM-DD
+}
+
+const UNDER_13_MESSAGE =
+  "Account for players under the age of 13 must be created by a parent through a parent account. Have your parent create an account and then create your account from inside the app.";
+
+const calculateAgeFromBirthdate = (birthdateIso: string): number => {
+  if (!birthdateIso) return 0;
+  const parts = birthdateIso.split("-");
+  if (parts.length !== 3) return 0;
+  const year = parseInt(parts[0], 10);
+  const month = parseInt(parts[1], 10);
+  const day = parseInt(parts[2], 10);
+  if (!year || !month || !day) return 0;
+
+  const today = new Date();
+  const birth = new Date(year, month - 1, day);
+
+  let age = today.getFullYear() - birth.getFullYear();
+  const m = today.getMonth() - birth.getMonth();
+  if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) {
+    age--;
+  }
+  return age;
+};
+
 const router = Router();
+
+/**
+ * Public signup: create a new auth user + profile.
+ * Enforces:
+ *  - role must be player/coach/parent
+ *  - player accounts < 13 cannot be created directly
+ */
+router.post(
+  "/signup",
+  async (
+    req: Request<unknown, unknown, SignupBody>,
+    res: Response,
+    next: NextFunction
+  ) => {
+    try {
+      const { email, password, role, firstName, lastName, phone, birthdate } =
+        req.body;
+
+      if (!email || !password || !role) {
+        return res.status(400).json({
+          error: "MISSING_FIELDS",
+          message: "email, password and role are required"
+        });
+      }
+
+      if (!["player", "coach", "parent"].includes(role)) {
+        return res.status(400).json({
+          error: "INVALID_ROLE",
+          message: "Role must be player, coach or parent for self-signup"
+        });
+      }
+
+      let birthdateIso: string | null = null;
+      if (typeof birthdate === "string" && birthdate.trim() !== "") {
+        birthdateIso = birthdate.trim();
+      }
+
+      if (role === "player") {
+        if (!birthdateIso) {
+          return res.status(400).json({
+            error: "BIRTHDATE_REQUIRED",
+            message: "Birthdate is required for player accounts."
+          });
+        }
+
+        const age = calculateAgeFromBirthdate(birthdateIso);
+        if (age < 13) {
+          return res.status(400).json({
+            error: "UNDER_13_PLAYER",
+            message: UNDER_13_MESSAGE
+          });
+        }
+      }
+
+      // 1) Create Supabase Auth user
+      const { data: createUserData, error: createUserError } =
+        await supabaseAdmin.auth.admin.createUser({
+          email,
+          password,
+          email_confirm: true
+        });
+
+      if (createUserError || !createUserData?.user) {
+        throw createUserError ?? new Error("Failed to create auth user");
+      }
+
+      const authUser = createUserData.user;
+
+      // 2) Insert into profiles
+      const { data: profile, error: profileError } = await supabaseAdmin
+        .from("profiles")
+        .insert({
+          auth_user_id: authUser.id,
+          role,
+          email,
+          first_name: firstName,
+          last_name: lastName,
+          phone,
+          birthdate: birthdateIso
+        })
+        .select("*")
+        .single();
+
+      if (profileError) {
+        throw profileError;
+      }
+
+      return res.status(201).json({
+        authUserId: authUser.id,
+        profile
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
 
 /**
  * Admin helper: create a new auth user + profile.
@@ -28,7 +158,8 @@ router.post(
     next: NextFunction
   ) => {
     try {
-      const { email, password, role, firstName, lastName, phone } = req.body;
+      const { email, password, role, firstName, lastName, phone, birthdate } =
+        req.body;
 
       if (!email || !password || !role) {
         return res
@@ -63,7 +194,8 @@ router.post(
           email,
           first_name: firstName,
           last_name: lastName,
-          phone
+          phone,
+          birthdate: birthdate ?? null
         })
         .select("*")
         .single();
@@ -227,7 +359,7 @@ router.get(
 
       let query = supabaseAdmin
         .from("profiles")
-        .select("id, role, email, first_name, last_name")
+        .select("id, role, email, first_name, last_name, birthdate")
         .order("created_at", { ascending: true });
 
       if (typeof role === "string" && role.length > 0) {

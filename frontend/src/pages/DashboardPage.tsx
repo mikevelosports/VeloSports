@@ -32,7 +32,6 @@ import {
   type PlayerProgramStateRow
 } from "../api/programState";
 
-
 import {
   fetchPlayerMedals,
   type PlayerMedalsResponse,
@@ -82,7 +81,10 @@ interface UpcomingSessionSummary {
   label: string;
   subLabel?: string;
   scheduledFor?: string;
+  /** Full protocol title for the primary block (for display next to abbreviation) */
+  primaryProtocolTitle?: string;
 }
+
 
 /**
  * Lightweight wrapper around /players/:playerId/stats
@@ -103,6 +105,74 @@ async function fetchPlayerStatsSummary(
   }
   return res.json();
 }
+
+// --- Shared helpers copied from MyProgramPage (needed by upcoming-session helper) ---
+
+const todayIso = () => new Date().toISOString().slice(0, 10);
+
+const parseIsoLocal = (iso: string): Date => new Date(`${iso}T00:00:00`);
+
+const diffDaysLocal = (aIso: string, bIso: string): number => {
+  const da = parseIsoLocal(aIso);
+  const db = parseIsoLocal(bIso);
+  const ms = da.getTime() - db.getTime();
+  return Math.round(ms / (1000 * 60 * 60 * 24));
+};
+
+// Abbreviation helper for dashboard use (same as MyProgramPage)
+const protocolAbbreviation = (title: string): string => {
+  const t = title.toLowerCase().trim();
+
+  const matchLevel = (prefix: string) => {
+    const match = t.match(/level\s*([1-5])/);
+    if (match) return `${prefix}${match[1]}`;
+    return prefix;
+  };
+
+  // OverSpeed
+  if (t.startsWith("overspeed")) return matchLevel("OS");
+
+  // Counterweight
+  if (t.startsWith("counterweight")) return matchLevel("CW");
+
+  // Power Mechanics – Ground Force
+  if (t.startsWith("power mechanics ground force")) return matchLevel("PM_GF");
+
+  // Power Mechanics – Rotational Sequencing
+  if (
+    t.startsWith("power mechanics rotational sequencing") ||
+    t.startsWith("power mechanics sequencing")
+  ) {
+    return matchLevel("PM_RS");
+  }
+
+  // Power Mechanics – Bat Delivery
+  if (t.startsWith("power mechanics bat delivery")) return "PM_BD";
+
+  // Exit Velo Application
+  if (t.startsWith("exit velo application")) return matchLevel("EVA");
+
+  // Warm-ups
+  if (t.includes("dynamic") && t.includes("warm")) return "DWU";
+  if (t.includes("pre") && t.includes("warm")) return "PGW";
+  if (t.includes("deck") && t.includes("warm")) return "ODW";
+
+  // Assessments
+  if (t.includes("assessment") && t.includes("full")) return "FSA";
+  if (t.includes("assessment") && (t.includes("quick") || t.includes("short"))) {
+    return "QSA";
+  }
+
+  // Fallback: just use the title
+  return title;
+};
+
+const phaseLabel = (phase: ProgramState["currentPhase"]): string => {
+  if (phase.startsWith("RAMP")) return "Ramp‑up";
+  if (phase.startsWith("PRIMARY")) return "Primary";
+  if (phase.startsWith("MAINT")) return "Maintenance";
+  return phase;
+};
 
 /**
  * Compute the first upcoming training *day* for a player using the
@@ -175,16 +245,22 @@ async function fetchNextUpcomingSessionForPlayer(
     const phaseName = phaseLabel(engineState.currentPhase);
 
     // 7) Build a short label from the primary block, just like the
-    //     Upcoming Sessions card does with abbreviations.
+    //     Upcoming Sessions card does with abbreviations, and also
+    //     capture the full protocol title for UI display.
     let label = "Upcoming training";
+    let primaryProtocolTitle: string | undefined;
+
     if (nextDay.blocks.length > 0) {
       const primary = nextDay.blocks[0];
       const abbr = protocolAbbreviation(primary.protocolTitle);
+      primaryProtocolTitle = primary.protocolTitle;
+
       label =
         nextDay.blocks.length > 1
           ? `${abbr} +${nextDay.blocks.length - 1}`
           : abbr;
     }
+
 
     const dayLabel =
       dayNumber && dayNumber > 0 ? `Day ${dayNumber}` : undefined;
@@ -199,7 +275,8 @@ async function fetchNextUpcomingSessionForPlayer(
       id: `${playerId}-${nextDay.date}`,
       label,
       subLabel,
-      scheduledFor: nextDay.date
+      scheduledFor: nextDay.date,
+      primaryProtocolTitle
     };
   } catch (err) {
     // If anything goes wrong, just fall back to "no upcoming session"
@@ -207,7 +284,6 @@ async function fetchNextUpcomingSessionForPlayer(
     return null;
   }
 }
-
 
 interface CoachTeamMetrics {
   teamId: string;
@@ -794,75 +870,6 @@ const SESSION_RANGE_LABELS: Record<SessionRangeKey, string> = {
   last30d: "Last 30 days"
 };
 
-// --- Shared helpers copied from MyProgramPage ---
-
-const todayIso = () => new Date().toISOString().slice(0, 10);
-
-const parseIsoLocal = (iso: string): Date => new Date(`${iso}T00:00:00`);
-
-const diffDaysLocal = (aIso: string, bIso: string): number => {
-  const da = parseIsoLocal(aIso);
-  const db = parseIsoLocal(bIso);
-  const ms = da.getTime() - db.getTime();
-  return Math.round(ms / (1000 * 60 * 60 * 24));
-};
-
-// Abbreviation helper for dashboard use (same as MyProgramPage)
-const protocolAbbreviation = (title: string): string => {
-  const t = title.toLowerCase().trim();
-
-  const matchLevel = (prefix: string) => {
-    const match = t.match(/level\s*([1-5])/);
-    if (match) return `${prefix}${match[1]}`;
-    return prefix;
-  };
-
-  // OverSpeed
-  if (t.startsWith("overspeed")) return matchLevel("OS");
-
-  // Counterweight
-  if (t.startsWith("counterweight")) return matchLevel("CW");
-
-  // Power Mechanics – Ground Force
-  if (t.startsWith("power mechanics ground force")) return matchLevel("PM_GF");
-
-  // Power Mechanics – Rotational Sequencing
-  if (
-    t.startsWith("power mechanics rotational sequencing") ||
-    t.startsWith("power mechanics sequencing")
-  ) {
-    return matchLevel("PM_RS");
-  }
-
-  // Power Mechanics – Bat Delivery
-  if (t.startsWith("power mechanics bat delivery")) return "PM_BD";
-
-  // Exit Velo Application
-  if (t.startsWith("exit velo application")) return matchLevel("EVA");
-
-  // Warm-ups
-  if (t.includes("dynamic") && t.includes("warm")) return "DWU";
-  if (t.includes("pre") && t.includes("warm")) return "PGW";
-  if (t.includes("deck") && t.includes("warm")) return "ODW";
-
-  // Assessments
-  if (t.includes("assessment") && t.includes("full")) return "FSA";
-  if (t.includes("assessment") && (t.includes("quick") || t.includes("short"))) {
-    return "QSA";
-  }
-
-  // Fallback: just use the title
-  return title;
-};
-
-const phaseLabel = (phase: ProgramState["currentPhase"]): string => {
-  if (phase.startsWith("RAMP")) return "Ramp‑up";
-  if (phase.startsWith("PRIMARY")) return "Primary";
-  if (phase.startsWith("MAINT")) return "Maintenance";
-  return phase;
-};
-
-
 function formatDateShort(isoDate: string): string {
   if (!isoDate) return "";
   const d = new Date(isoDate);
@@ -1260,11 +1267,12 @@ const DashboardPage: React.FC = () => {
                 if (cancelled) return;
                 if (!stats) continue;
 
-                const sc = stats.sessionCounts ?? {};
-                const lifetime = sc.totalCompleted ?? 0;
-                const today = sc.today ?? 0;
-                const last7 = sc.last7Days ?? 0;
-                const last30 = sc.last30Days ?? 0;
+                const lifetime =
+                  stats.sessionCounts?.totalCompleted ?? 0;
+                const today = stats.sessionCounts?.today ?? 0;
+                const last7 = stats.sessionCounts?.last7Days ?? 0;
+                const last30 =
+                  stats.sessionCounts?.last30Days ?? 0;
 
                 sessionsLifetime += lifetime;
                 sessionsToday += today;
@@ -2223,24 +2231,38 @@ const DashboardPage: React.FC = () => {
                   {nextSessionError}
                 </div>
               ) : nextSessionForDashboard ? (
-                <div
-                  style={{
-                    borderRadius: "10px",
-                    border: `1px solid ${CARD_BORDER}`,
-                    padding: "0.6rem 0.75rem",
-                    background: "#020617"
-                  }}
-                >
                   <div
                     style={{
-                      fontSize: "0.85rem",
-                      color: PRIMARY_TEXT,
-                      fontWeight: 500
+                      borderRadius: "10px",
+                      border: `1px solid ${CARD_BORDER}`,
+                      padding: "0.6rem 0.75rem",
+                      background: "#020617"
                     }}
                   >
-                    {nextSessionForDashboard.label}
-                  </div>
-                  {nextSessionForDashboard.subLabel && (
+                    <div
+                      style={{
+                        fontSize: "0.85rem",
+                        color: PRIMARY_TEXT,
+                        fontWeight: 500,
+                        display: "flex",
+                        flexWrap: "wrap",
+                        alignItems: "baseline",
+                        gap: "0.25rem"
+                      }}
+                    >
+                      <span>{nextSessionForDashboard.label}</span>
+                      {nextSessionForDashboard.primaryProtocolTitle && (
+                        <span
+                          style={{
+                            fontSize: "0.8rem",
+                            color: MUTED_TEXT
+                          }}
+                        >
+                          · {nextSessionForDashboard.primaryProtocolTitle}
+                        </span>
+                      )}
+                    </div>
+                    {nextSessionForDashboard.subLabel && (
                     <div
                       style={{
                         fontSize: "0.8rem",
@@ -2737,24 +2759,38 @@ const DashboardPage: React.FC = () => {
                   {nextSessionError}
                 </div>
               ) : nextSessionForDashboard ? (
-                <div
-                  style={{
-                    borderRadius: "10px",
-                    border: `1px solid ${CARD_BORDER}`,
-                    padding: "0.6rem 0.75rem",
-                    background: "#020617"
-                  }}
-                >
                   <div
                     style={{
-                      fontSize: "0.85rem",
-                      color: PRIMARY_TEXT,
-                      fontWeight: 500
+                      borderRadius: "10px",
+                      border: `1px solid ${CARD_BORDER}`,
+                      padding: "0.6rem 0.75rem",
+                      background: "#020617"
                     }}
                   >
-                    {nextSessionForDashboard.label}
-                  </div>
-                  {nextSessionForDashboard.subLabel && (
+                    <div
+                      style={{
+                        fontSize: "0.85rem",
+                        color: PRIMARY_TEXT,
+                        fontWeight: 500,
+                        display: "flex",
+                        flexWrap: "wrap",
+                        alignItems: "baseline",
+                        gap: "0.25rem"
+                      }}
+                    >
+                      <span>{nextSessionForDashboard.label}</span>
+                      {nextSessionForDashboard.primaryProtocolTitle && (
+                        <span
+                          style={{
+                            fontSize: "0.8rem",
+                            color: MUTED_TEXT
+                          }}
+                        >
+                          · {nextSessionForDashboard.primaryProtocolTitle}
+                        </span>
+                      )}
+                    </div>
+                    {nextSessionForDashboard.subLabel && (
                     <div
                       style={{
                         fontSize: "0.8rem",

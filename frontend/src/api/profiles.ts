@@ -34,6 +34,52 @@ export async function fetchProfiles(role?: Role): Promise<ProfileSummary[]> {
 }
 
 /**
+ * Signup (public account creation) – POST /signup
+ */
+export interface SignupRequest {
+  email: string;
+  password: string;
+  role: Role;
+  firstName?: string;
+  lastName?: string;
+  phone?: string;
+  birthdate?: string; // ISO YYYY-MM-DD
+}
+
+export interface SignupResponse {
+  authUserId: string;
+  profile: ProfileSummary;
+}
+
+export async function signup(body: SignupRequest): Promise<SignupResponse> {
+  const res = await fetch(`${API_BASE_URL}/signup`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body)
+  });
+
+  const rawText = await res.text().catch(() => "");
+
+  if (!res.ok) {
+    let message = `Failed to sign up: ${res.status} ${rawText.slice(0, 200)}`;
+    try {
+      const data = JSON.parse(rawText);
+      if (data?.message && typeof data.message === "string") {
+        message = data.message;
+      } else if (data?.error && typeof data.error === "string") {
+        message = data.error;
+      }
+    } catch {
+      // ignore JSON parse errors
+    }
+    throw new Error(message);
+  }
+
+  // res.ok – we know rawText is JSON
+  return JSON.parse(rawText);
+}
+
+/**
  * Lightweight shape for a child player attached to a parent.
  * This matches what /parents/:parentId/players returns.
  */
@@ -134,6 +180,7 @@ export async function inviteExistingPlayerToParent(
 
   return res.json();
 }
+
 // NEW: full profile fetch by ID (uses GET /profiles/:id, which already returns "*")
 export interface ProfileDetail extends ProfileSummary {
   // include any extra fields you care about; we only need birthdate for now

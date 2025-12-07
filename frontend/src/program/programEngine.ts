@@ -66,6 +66,15 @@ export interface ProgramSchedule {
   weeks: WeekPlan[];
 }
 
+export interface ProgramScheduleOptions {
+  /**
+   * ISO dates (YYYY-MM-DD) where the player has ALREADY completed
+   * an Overspeed session. Used to enforce "day off after Overspeed".
+   */
+  completedOverspeedDates?: string[];
+}
+
+
 // ---- Program config & state ----
 
 export interface ProgramConfig {
@@ -270,6 +279,10 @@ const makeBlock = (
   meta
 });
 
+const isWarmupKind = (kind: BlockKind): boolean =>
+kind === "DYNAMIC_WARMUP" || kind === "PREGAME_WARMUP";
+
+
 // Decide which Ground Force level to schedule, if any
 const pickGroundForceLevel = (s: ProgramState): number | null => {
   if (!s.needsGroundForce) return null;
@@ -398,7 +411,7 @@ const buildBlocksForDay = (ctx: BuildSessionContext): SessionBlock[] => {
 
     // Every ~2 weeks try to get a full assessment
     const daysSinceFull = diffDays(ctx.date, s.lastFullAssessmentDate);
-    if (daysSinceFull >= 14 && remaining >= DURATIONS.FULL_ASSESSMENT) {
+    if (daysSinceFull >= 10 && remaining >= DURATIONS.FULL_ASSESSMENT) {
       blocks.push(
         makeBlock(
           "FULL_ASSESSMENT",
@@ -409,7 +422,7 @@ const buildBlocksForDay = (ctx: BuildSessionContext): SessionBlock[] => {
       s.lastFullAssessmentDate = ctx.date;
       remaining -= DURATIONS.FULL_ASSESSMENT;
     } else if (
-      daysSinceFull >= 14 &&
+      daysSinceFull >= 10 &&
       remaining >= DURATIONS.QUICK_ASSESSMENT
     ) {
       blocks.push(
@@ -545,8 +558,14 @@ const buildBlocksForDay = (ctx: BuildSessionContext): SessionBlock[] => {
         (s.exitVeloSessionsByLevel[evLevel] ?? 0) + 1;
     }
 
-    // Try to schedule an end-of-session assessment if due
+  // Try to schedule an end-of-session assessment if due
     maybeScheduleAssessmentEnd();
+
+    // Don't leave a training day with warm-ups only
+    const hasNonWarmupBlock = blocks.some((b) => !isWarmupKind(b.kind));
+    if (!hasNonWarmupBlock) {
+      return [];
+    }
 
     return blocks;
   }
@@ -613,8 +632,15 @@ const buildBlocksForDay = (ctx: BuildSessionContext): SessionBlock[] => {
   // If we still have time and an assessment is due, schedule it
   maybeScheduleAssessmentEnd();
 
+  // Don't leave a training day with warm-ups only
+  const hasNonWarmupBlock = blocks.some((b) => !isWarmupKind(b.kind));
+  if (!hasNonWarmupBlock) {
+    return [];
+  }
+
   return blocks;
 };
+
 
 // ---- weekly scheduling ----
 
@@ -630,7 +656,8 @@ const buildBlocksForDay = (ctx: BuildSessionContext): SessionBlock[] => {
  */
 export function generateProgramSchedule(
   config: ProgramConfig,
-  initialState: ProgramState
+  initialState: ProgramState,
+  options?: ProgramScheduleOptions
 ): ProgramSchedule {
   const sessionMinutes = getSessionMinutes(
     config.age,
@@ -656,9 +683,30 @@ export function generateProgramSchedule(
     }
   };
 
+  const startDate = config.programStartDate;
   const weeks: WeekPlan[] = [];
 
-  const startDate = config.programStartDate;
+  // Normalise completed Overspeed dates
+  const rawCompleted =
+    options?.completedOverspeedDates?.map((d) => d.slice(0, 10)) ?? [];
+  rawCompleted.sort((a, b) => a.localeCompare(b));
+
+  const today = new Date().toISOString().slice(0, 10);
+  const completedOverspeedDates = rawCompleted.filter(
+    (d) => d && d <= today
+  );
+  const completedOverspeedSet = new Set(completedOverspeedDates);
+
+  // Last Overspeed session (completed) BEFORE the schedule start date,
+  // used to avoid scheduling Overspeed on the very first day if needed.
+  let lastOverspeedDate: string | null = null;
+  for (const d of completedOverspeedDates) {
+    if (d < startDate) {
+      lastOverspeedDate = d;
+    } else {
+      break;
+    }
+  }
 
   for (let w = 0; w < config.horizonWeeks; w++) {
     const weekStartDate = addDays(startDate, w * 7);
@@ -677,59 +725,78 @@ export function generateProgramSchedule(
 
     // Cap training days by age-based limit
     const limitedTrainingOffsets = trainingOffsets.slice(0, maxTrainingDays);
+    const limitedTrainingOffsetSet = new Set(limitedTrainingOffsets);
 
-    // Choose OverSpeed days within training days (non-game), first-pass
-    const nonGameTrainingOffsets = limitedTrainingOffsets.filter((offset) => {
-      const d = addDays(weekStartDate, offset);
-      const idx = parseDate(d).getUTCDay();
-      const wd = weekdayIndexToKey(idx);
-      const isGameDay =
-        config.inSeason && config.gameDays.includes(wd);
-      return !isGameDay;
-    });
+    // Week-level Overspeed cap (same as before, up to 3)
+    const osPerWeekTarget = Math.min(
+      phaseDef.overspeedSessionsPerWeekTarget,
+      3,
+      limitedTrainingOffsets.length
+    );
+    let osScheduledThisWeek = 0;
+    const overspeedOffsets = new Set<number>();
 
-    let osTarget = phaseDef.overspeedSessionsPerWeekTarget;
-    osTarget = Math.min(osTarget, nonGameTrainingOffsets.length);
-    // Always <= 3 per week
-    osTarget = Math.min(osTarget, 3);
-
-    const overspeedOffsets: number[] = [];
-
-    for (const offset of nonGameTrainingOffsets) {
-      if (overspeedOffsets.length >= osTarget) break;
-      if (overspeedOffsets.length === 0) {
-        overspeedOffsets.push(offset);
-        continue;
-      }
-      const last = overspeedOffsets[overspeedOffsets.length - 1];
-      // Try to avoid back-to-back days if possible
-      if (offset === last || offset === last + 1) {
-        continue;
-      }
-      overspeedOffsets.push(offset);
-    }
-
-    // If we still don't have enough OS days (because we skipped back-to-backs),
-    // fill in remaining slots ignoring spacing.
-    if (overspeedOffsets.length < osTarget) {
-      for (const offset of nonGameTrainingOffsets) {
-        if (overspeedOffsets.length >= osTarget) break;
-        if (!overspeedOffsets.includes(offset)) {
-          overspeedOffsets.push(offset);
-        }
-      }
-    }
-
-    // Build each day
+    // Pass 1: decide which days in this week should be Overspeed days,
+    // respecting:
+    //  - game days
+    //  - training-day cap
+    //  - per-week Overspeed cap
+    //  - "day off after Overspeed" using lastOverspeedDate
+    //  - don't schedule Overspeed on a day that already has a completed OS
     for (let offset = 0; offset < 7; offset++) {
       const date = addDays(weekStartDate, offset);
       const dowIdx = parseDate(date).getUTCDay();
       const weekday = weekdayIndexToKey(dowIdx);
       const isGameDay =
         config.inSeason && config.gameDays.includes(weekday);
-      const isTrainingDay = limitedTrainingOffsets.includes(offset);
+      const isTrainingDay = limitedTrainingOffsetSet.has(offset);
+      const hasCompletedOS = completedOverspeedSet.has(date);
+
+      // Treat completed Overspeed sessions as real OS days for spacing,
+      // but we do NOT schedule blocks for them again.
+      if (hasCompletedOS) {
+        if (!lastOverspeedDate || date > lastOverspeedDate) {
+          lastOverspeedDate = date;
+        }
+      }
+
+      if (!isTrainingDay || isGameDay) {
+        continue;
+      }
+
+      if (osScheduledThisWeek >= osPerWeekTarget) {
+        continue;
+      }
+
+      // Enforce at least 1 full day off after any Overspeed session
+      let blockedByRestRule = false;
+      if (lastOverspeedDate) {
+        const gap = diffDays(date, lastOverspeedDate);
+        if (gap <= 1) {
+          blockedByRestRule = true;
+        }
+      }
+
+      // Don't stack a planned Overspeed on the same day as a completed OS
+      if (blockedByRestRule || hasCompletedOS) {
+        continue;
+      }
+
+      overspeedOffsets.add(offset);
+      osScheduledThisWeek += 1;
+      lastOverspeedDate = date;
+    }
+
+    // Build each day plan
+    for (let offset = 0; offset < 7; offset++) {
+      const date = addDays(weekStartDate, offset);
+      const dowIdx = parseDate(date).getUTCDay();
+      const weekday = weekdayIndexToKey(dowIdx);
+      const isGameDay =
+        config.inSeason && config.gameDays.includes(weekday);
+      const isTrainingDay = limitedTrainingOffsetSet.has(offset);
       const isOverspeedDay =
-        isTrainingDay && overspeedOffsets.includes(offset);
+        isTrainingDay && overspeedOffsets.has(offset);
 
       const blocks = isTrainingDay
         ? buildBlocksForDay({
@@ -766,3 +833,4 @@ export function generateProgramSchedule(
     weeks
   };
 }
+
