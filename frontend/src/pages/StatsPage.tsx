@@ -19,7 +19,6 @@ import {
 import { fetchProfileById } from "../api/profiles";
 
 // Match StartSessionPage theme
-const CHIP_BG = "#0b1120";
 const CHIP_BORDER = "#4b5563";
 const PRIMARY_TEXT = "var(--velo-text-primary)";
 const MUTED_TEXT = "var(--velo-text-muted)";
@@ -1213,7 +1212,7 @@ const SessionsSummaryCard: React.FC<{ counts: SessionCounts }> = ({
                   padding: "0.25rem 0.65rem",
                   borderRadius: "999px",
                   border: `1px solid ${CHIP_BORDER}`,
-                  background: CHIP_BG,
+                  background: CARD_BG,
                   fontSize: "0.75rem",
                   display: "flex",
                   alignItems: "center",

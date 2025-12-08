@@ -35,6 +35,7 @@ const MUTED_TEXT = "var(--velo-text-muted)";
 const ACCENT = "#22c55e";               // keep brand green
 const CARD_BORDER = "var(--velo-border-card)";
 const CARD_BG = "var(--velo-bg-card)";
+const CARD_ALT_BG = "var(--velo-bg-card-alt)";
 
 interface MyProgramPageProps {
   onBack: () => void;
@@ -1131,7 +1132,7 @@ const MyProgramPage: React.FC<MyProgramPageProps> = ({
           padding: "1rem",
           borderRadius: "12px",
           border: `1px solid ${CARD_BORDER}`,
-          background: "#020617"
+          background: CARD_BG
         }}
       >
         <div
@@ -1237,7 +1238,7 @@ const MyProgramPage: React.FC<MyProgramPageProps> = ({
                           position: "relative",
                           borderRadius: "999px",
                           overflow: "hidden",
-                          background: "#020617",
+                          background: CARD_ALT_BG,
                           border: `1px solid ${CARD_BORDER}`,
                           height: "8px"
                         }}
@@ -1306,7 +1307,7 @@ const MyProgramPage: React.FC<MyProgramPageProps> = ({
                   padding: "0.35rem 0.8rem",
                   borderRadius: "999px",
                   border: `1px solid ${CARD_BORDER}`,
-                  background: "#020617",
+                  background: CARD_BG,
                   color: PRIMARY_TEXT,
                   fontSize: "0.8rem",
                   cursor: "pointer"
@@ -1376,7 +1377,7 @@ const MyProgramPage: React.FC<MyProgramPageProps> = ({
                       padding: "0.25rem 0.7rem",
                       borderRadius: "999px",
                       border: `1px solid ${CARD_BORDER}`,
-                      background: "#020617",
+                      background: CARD_BG,
                       color: PRIMARY_TEXT,
                       fontSize: "0.75rem",
                       cursor: "pointer",
@@ -1426,7 +1427,7 @@ const MyProgramPage: React.FC<MyProgramPageProps> = ({
                     border: `1px solid ${
                       maintenanceExtensionRequested ? ACCENT : CARD_BORDER
                     }`,
-                    background: maintenanceExtensionRequested ? ACCENT : "#020617",
+                    background: maintenanceExtensionRequested ? ACCENT : CARD_ALT_BG,
                     color: maintenanceExtensionRequested ? "#0f172a" : PRIMARY_TEXT,
                     fontSize: "0.75rem",
                     cursor: "pointer",
@@ -1450,7 +1451,7 @@ const MyProgramPage: React.FC<MyProgramPageProps> = ({
                     border: `1px solid ${
                       nextRampUpRequested ? ACCENT : CARD_BORDER
                     }`,
-                    background: nextRampUpRequested ? ACCENT : "#020617",
+                    background: nextRampUpRequested ? ACCENT : CARD_ALT_BG,
                     color: nextRampUpRequested ? "#0f172a" : PRIMARY_TEXT,
                     fontSize: "0.75rem",
                     cursor: "pointer",
@@ -1504,7 +1505,7 @@ const MyProgramPage: React.FC<MyProgramPageProps> = ({
                     padding: "0.4rem 0.6rem",
                     borderRadius: "8px",
                     border: `1px solid ${CARD_BORDER}`,
-                    background: "#020617",
+                    background: CARD_BG,
                     color: PRIMARY_TEXT
                   }}
                 />
@@ -1530,7 +1531,7 @@ const MyProgramPage: React.FC<MyProgramPageProps> = ({
                     padding: "0.4rem 0.6rem",
                     borderRadius: "8px",
                     border: `1px solid ${CARD_BORDER}`,
-                    background: "#020617",
+                    background: CARD_BG,
                     color: PRIMARY_TEXT
                   }}
                 >
@@ -1569,7 +1570,7 @@ const MyProgramPage: React.FC<MyProgramPageProps> = ({
                     padding: "0.4rem 0.6rem",
                     borderRadius: "8px",
                     border: `1px solid ${CARD_BORDER}`,
-                    background: "#020617",
+                    background: CARD_BG,
                     color: PRIMARY_TEXT
                   }}
                 />
@@ -1600,7 +1601,7 @@ const MyProgramPage: React.FC<MyProgramPageProps> = ({
                     padding: "0.4rem 0.6rem",
                     borderRadius: "8px",
                     border: `1px solid ${CARD_BORDER}`,
-                    background: "#020617",
+                    background: CARD_BG,
                     color: PRIMARY_TEXT
                   }}
                 />
@@ -1627,7 +1628,7 @@ const MyProgramPage: React.FC<MyProgramPageProps> = ({
                     padding: "0.4rem 0.6rem",
                     borderRadius: "8px",
                     border: `1px solid ${CARD_BORDER}`,
-                    background: "#020617",
+                    background: CARD_BG,
                     color: PRIMARY_TEXT
                   }}
                 />
@@ -1655,7 +1656,7 @@ const MyProgramPage: React.FC<MyProgramPageProps> = ({
                     padding: "0.4rem 0.6rem",
                     borderRadius: "8px",
                     border: `1px solid ${CARD_BORDER}`,
-                    background: "#020617",
+                    background: CARD_BG,
                     color: PRIMARY_TEXT
                   }}
                 >
@@ -1706,7 +1707,7 @@ const MyProgramPage: React.FC<MyProgramPageProps> = ({
                           border: `1px solid ${
                             isActive ? ACCENT : "rgba(75,85,99,0.8)"
                           }`,
-                          background: isActive ? ACCENT : "#020617",
+                          background: isActive ? ACCENT : CARD_BG,
                           color: isActive ? "#0f172a" : PRIMARY_TEXT,
                           fontSize: "0.8rem",
                           cursor: "pointer"
@@ -1751,7 +1752,7 @@ const MyProgramPage: React.FC<MyProgramPageProps> = ({
                             border: `1px solid ${
                               isActive ? YELLOW : "rgba(75,85,99,0.8)"
                             }`,
-                            background: isActive ? YELLOW : "#020617",
+                            background: isActive ? YELLOW : CARD_BG,
                             color: isActive ? "#0f172a" : PRIMARY_TEXT,
                             fontSize: "0.8rem",
                             cursor: "pointer"
@@ -1801,7 +1802,7 @@ const MyProgramPage: React.FC<MyProgramPageProps> = ({
               padding: "1rem",
               borderRadius: "12px",
               border: `1px solid ${CARD_BORDER}`,
-              background: "#020617"
+              background: CARD_BG
             }}
           >
             <div
@@ -1843,7 +1844,7 @@ const MyProgramPage: React.FC<MyProgramPageProps> = ({
                     padding: "0.25rem 0.6rem",
                     borderRadius: "999px",
                     border: `1px solid ${CARD_BORDER}`,
-                    background: "#020617",
+                    background: CARD_BG,
                     color: PRIMARY_TEXT,
                     fontSize: "0.8rem",
                     cursor: "pointer"
@@ -1868,7 +1869,7 @@ const MyProgramPage: React.FC<MyProgramPageProps> = ({
                     padding: "0.25rem 0.6rem",
                     borderRadius: "999px",
                     border: `1px solid ${CARD_BORDER}`,
-                    background: "#020617",
+                    background: CARD_BG,
                     color: PRIMARY_TEXT,
                     fontSize: "0.8rem",
                     cursor: "pointer"
@@ -1887,7 +1888,7 @@ const MyProgramPage: React.FC<MyProgramPageProps> = ({
                     padding: "0.25rem 0.7rem",
                     borderRadius: "999px",
                     border: `1px solid ${CARD_BORDER}`,
-                    background: "#020617",
+                    background: CARD_BG,
                     color: PRIMARY_TEXT,
                     fontSize: "0.8rem",
                     cursor: "pointer"
@@ -1986,7 +1987,7 @@ const MyProgramPage: React.FC<MyProgramPageProps> = ({
                         minHeight: "70px",
                         borderRadius: "10px",
                         border: `1px solid ${CARD_BORDER}`,
-                        background: "#020617"
+                        background: CARD_BG
                       }}
                     />
                   );
@@ -2027,7 +2028,7 @@ const MyProgramPage: React.FC<MyProgramPageProps> = ({
 
                 // Color priorities: completed > game > planned training > future training
                 let borderColor = CARD_BORDER;
-                let bgColor = "#020617";
+                let bgColor = CARD_BG;
                 let pillLabel: string | null = null;
                 let pillBg: string | null = null;
 
@@ -2175,7 +2176,7 @@ const MyProgramPage: React.FC<MyProgramPageProps> = ({
                   padding: "0.75rem",
                   borderRadius: "10px",
                   border: `1px solid ${CARD_BORDER}`,
-                  background: "#020617"
+                  background: CARD_BG
                 }}
               >
                 <div
@@ -2395,7 +2396,7 @@ const MyProgramPage: React.FC<MyProgramPageProps> = ({
               padding: "1rem",
               borderRadius: "12px",
               border: `1px solid ${CARD_BORDER}`,
-              background: "#020617"
+              background: CARD_BG
             }}
           >
             <h3 style={{ marginTop: 0, marginBottom: "0.5rem" }}>
@@ -2438,7 +2439,7 @@ const MyProgramPage: React.FC<MyProgramPageProps> = ({
                           borderRadius: "10px",
                           border: `1px solid ${CARD_BORDER}`,
                           padding: "0.6rem 0.75rem",
-                          background: "#020617"
+                          background: CARD_BG
                         }}
                       >
                         <div
@@ -2577,7 +2578,7 @@ const MyProgramPage: React.FC<MyProgramPageProps> = ({
               padding: "1rem",
               borderRadius: "12px",
               border: `1px solid ${CARD_BORDER}`,
-              background: "#020617"
+              background: CARD_BG
             }}
           >
             <h3 style={{ marginTop: 0, marginBottom: "0.5rem" }}>
@@ -2628,7 +2629,7 @@ const MyProgramPage: React.FC<MyProgramPageProps> = ({
                           borderRadius: "8px",
                           border: `1px solid ${CARD_BORDER}`,
                           padding: "0.4rem 0.6rem",
-                          background: "#020617"
+                          background: CARD_BG
                         }}
                       >
                         <div
@@ -2677,7 +2678,7 @@ const MyProgramPage: React.FC<MyProgramPageProps> = ({
                       padding: "0.3rem 0.7rem",
                       borderRadius: "999px",
                       border: `1px solid ${CARD_BORDER}`,
-                      background: "#020617",
+                      background: CARD_BG,
                       color: PRIMARY_TEXT,
                       fontSize: "0.8rem",
                       cursor: "pointer"
