@@ -20,6 +20,10 @@
   /* Text */
   --velo-text-primary: #e5e7eb;
   --velo-text-muted: #9ca3af;
+
+  /* Beta banner (defaults align with dark theme) */
+  --velo-beta-bg: #0b1120;
+  --velo-beta-text: #e5e7eb;
 }
 
 /* Explicit dark theme */
@@ -33,6 +37,10 @@
 
   --velo-text-primary: #e5e7eb;
   --velo-text-muted: #9ca3af;
+
+  /* Beta banner (dark) */
+  --velo-beta-bg: #0b1120;
+  --velo-beta-text: #e5e7eb;
 }
 
 /* Light theme */
@@ -46,7 +54,26 @@
 
   --velo-text-primary: #111827;
   --velo-text-muted: #4b5563;
+
+  /* Beta banner (light) */
+  --velo-beta-bg: #dcfce7;
+  --velo-beta-text: #14532d;
 }
+
+:root {
+  /* ...existing vars... */
+
+  --velo-beta-bg: #111827;
+  --velo-beta-text: #f9fafb;
+}
+
+/* Light theme can keep same banner colors so it pops */
+:root[data-theme="light"] {
+  /* ...existing light vars... */
+  --velo-beta-bg: #111827;
+  --velo-beta-text: #f9fafb;
+}
+
 
 /* App logo variants */
 .app-logo {
@@ -74,7 +101,6 @@
 :root[data-theme="light"] .app-logo--for-light-bg {
   display: block;
 }
-
 
 html,
 body,

@@ -19,14 +19,17 @@ import {
 import { fetchProfileById } from "../api/profiles";
 
 // Match StartSessionPage theme
-const PRIMARY_TEXT = "#e5e7eb";
-const MUTED_TEXT = "#9ca3af";
 const CHIP_BG = "#0b1120";
 const CHIP_BORDER = "#4b5563";
-const ACCENT = "#22c55e";
-const CARD_BG = "#020617";
-const CARD_BORDER = "rgba(148,163,184,0.4)";
+const PRIMARY_TEXT = "var(--velo-text-primary)";
+const MUTED_TEXT = "var(--velo-text-muted)";
+const ACCENT = "#22c55e";               // keep brand green
+
+const CARD_BORDER = "var(--velo-border-card)";
+const CARD_BG = "var(--velo-bg-card)";
 const CARD_SHADOW = "0 8px 20px rgba(0,0,0,0.35)";
+
+
 
 const MEDAL_TIER_COLORS: Record<string, string> = {
   bronze: "#b45309",
@@ -592,7 +595,7 @@ const MedalTile: React.FC<MedalTileProps> = ({ medal, earned, compact }) => {
         width: size,
         borderRadius: "10px",
         border: `1px solid ${tierColor}`,
-        background: "#020617",
+        background: CARD_BG,
         padding: compact ? "0.25rem" : "0.35rem",
         opacity: earned ? 1 : 0.3,
         display: "flex",
@@ -836,7 +839,7 @@ const MedalsSummaryCard: React.FC<MedalsSummaryCardProps> = ({
       style={{
         borderRadius: "12px",
         padding: "0.9rem 1rem",
-        background: "#020617",
+        background: CARD_BG,
         border: `1px solid ${CARD_BORDER}`,
         boxShadow: CARD_SHADOW,
         marginBottom: "1rem",
@@ -987,7 +990,7 @@ const PlayerMedalsGallery: React.FC<PlayerMedalsGalleryProps> = ({
         style={{
           borderRadius: "12px",
           border: `1px solid ${CARD_BORDER}`,
-          background: "#020617",
+          background: CARD_BG,
           padding: "0.5rem 0.75rem"
         }}
       >
@@ -1232,7 +1235,7 @@ const SessionsSummaryCard: React.FC<{ counts: SessionCounts }> = ({
           marginTop: "0.75rem",
           borderRadius: "10px",
           border: `1px solid ${CARD_BORDER}`,
-          background: "#020617",
+          background: CARD_BG,
           overflow: "hidden"
         }}
       >
@@ -1330,7 +1333,7 @@ const DevelopmentRubric: React.FC<DevelopmentRubricProps> = ({
         style={{
           borderRadius: "12px",
           padding: "0.85rem 1rem",
-          background: "#020617",
+          background: CARD_BG,
           border: `1px solid ${CARD_BORDER}`,
           boxShadow: CARD_SHADOW,
           marginBottom: "1rem"
@@ -1410,7 +1413,7 @@ const DevelopmentRubric: React.FC<DevelopmentRubricProps> = ({
             position: "relative",
             borderRadius: "999px",
             border: `1px solid ${CARD_BORDER}`,
-            background: "#020617",
+            background: CARD_BG,
             padding: "2px 0",
             overflow: "hidden"
           }}
@@ -1474,7 +1477,7 @@ const DevelopmentRubric: React.FC<DevelopmentRubricProps> = ({
       style={{
         borderRadius: "12px",
         padding: "0.85rem 1rem",
-        background: "#020617",
+        background: CARD_BG,
         border: `1px solid ${CARD_BORDER}`,
         boxShadow: CARD_SHADOW,
         marginBottom: "1rem"
@@ -1580,7 +1583,7 @@ const PlayerStatsView: React.FC<PlayerStatsViewProps> = ({
               minWidth: "220px",
               borderRadius: "12px",
               padding: "1rem",
-              background: "#020617",
+              background: CARD_BG,
               boxShadow: CARD_SHADOW,
               border: `1px solid ${CARD_BORDER}`
             }}
@@ -1649,7 +1652,7 @@ const PlayerStatsView: React.FC<PlayerStatsViewProps> = ({
               minWidth: "220px",
               borderRadius: "12px",
               padding: "1rem",
-              background: "#020617",
+              background: CARD_BG,
               boxShadow: CARD_SHADOW,
               border: `1px solid ${CARD_BORDER}`
             }}
@@ -1733,7 +1736,7 @@ const PlayerStatsView: React.FC<PlayerStatsViewProps> = ({
           style={{
             borderRadius: "12px",
             padding: "1rem",
-            background: "#020617",
+            background: CARD_BG,
             border: `1px solid ${CARD_BORDER}`,
             marginBottom: "1rem"
           }}
@@ -1806,7 +1809,7 @@ const PlayerStatsView: React.FC<PlayerStatsViewProps> = ({
           style={{
             borderRadius: "12px",
             padding: "1rem",
-            background: "#020617",
+            background: CARD_BG,
             border: `1px solid ${CARD_BORDER}`,
             marginBottom: "1rem"
           }}
@@ -1877,7 +1880,7 @@ const PlayerStatsView: React.FC<PlayerStatsViewProps> = ({
           style={{
             borderRadius: "12px",
             padding: "1rem",
-            background: "#020617",
+            background: CARD_BG,
             border: `1px solid ${CARD_BORDER}`
           }}
         >

@@ -32,6 +32,10 @@ import {
   type PlayerProgramStateRow
 } from "../api/programState";
 
+import logoForLightBg from "../assets/velo-logo-light-bg.png";
+import logoForDarkBg from "../assets/velo-logo-dark-bg.png";
+
+
 import {
   fetchPlayerMedals,
   type PlayerMedalsResponse,
@@ -1657,7 +1661,7 @@ const DashboardPage: React.FC = () => {
                         padding: "0.45rem 0.6rem",
                         borderRadius: "10px",
                         border: `1px solid ${CARD_BORDER}`,
-                        background: "#020617"
+                        background: CARD_BG
                       }}
                     >
                       <div>
@@ -2247,7 +2251,7 @@ const DashboardPage: React.FC = () => {
                       borderRadius: "10px",
                       border: `1px solid ${CARD_BORDER}`,
                       padding: "0.6rem 0.75rem",
-                      background: "#020617"
+                      background: CARD_BG
                     }}
                   >
                     <div
@@ -2775,7 +2779,7 @@ const DashboardPage: React.FC = () => {
                       borderRadius: "10px",
                       border: `1px solid ${CARD_BORDER}`,
                       padding: "0.6rem 0.75rem",
-                      background: "#020617"
+                      background: CARD_BG
                     }}
                   >
                     <div
@@ -3202,7 +3206,7 @@ const DashboardPage: React.FC = () => {
                       borderRadius: "8px",
                       border: `1px solid ${CARD_BORDER}`,
                       padding: "0.4rem 0.6rem",
-                      background: "#020617"
+                      background: CARD_BG
                     }}
                   >
                     <div
@@ -3426,7 +3430,7 @@ const DashboardPage: React.FC = () => {
                 padding: "0.15rem",
                 borderRadius: "999px",
                 border: `1px solid ${CARD_BORDER}`,
-                background: "#020617"
+                background: CARD_BG
               }}
             >
               {(Object.keys(SESSION_RANGE_LABELS) as SessionRangeKey[]).map(
@@ -3506,7 +3510,7 @@ const DashboardPage: React.FC = () => {
                         borderRadius: "8px",
                         border: `1px solid ${CARD_BORDER}`,
                         padding: "0.4rem 0.6rem",
-                        background: "#020617"
+                        background: CARD_BG
                       }}
                     >
                       <div
@@ -3829,16 +3833,27 @@ const DashboardPage: React.FC = () => {
         }}
       >
         <div>
+          {/* Logo + optional “Parent view” tag */}
           <div
             style={{
-              fontSize: "0.75rem",
-              textTransform: "uppercase",
-              letterSpacing: "0.12em",
-              color: MUTED_TEXT,
-              marginBottom: "0.15rem"
+              display: "flex",
+              alignItems: "center",
+              gap: "0.75rem",
+              marginBottom: "0.25rem"
             }}
           >
-            Velo Sports
+            <div className="app-logo-wrapper">
+              <img
+                src={logoForLightBg}
+                alt="Velo Sports"
+                className="app-logo app-logo--for-light-bg"
+              />
+              <img
+                src={logoForDarkBg}
+                alt="Velo Sports"
+                className="app-logo app-logo--for-dark-bg"
+              />
+            </div>
             {isParent && selectedPlayerName && (
               <span style={{ color: MUTED_TEXT }}> • Parent view</span>
             )}

@@ -1,3 +1,4 @@
+//frontend/src/pages/StartSessionPage.tsx
 import React, { useEffect, useMemo, useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import {
@@ -38,15 +39,20 @@ import {
 
 // ---- Theme + helpers ----
 
-const PRIMARY_TEXT = "#e5e7eb";
-const MUTED_TEXT = "#9ca3af";
+
 const CHIP_BG = "#0b1120";
 const CHIP_ACTIVE_BG = "#1f2937";
 const CHIP_BORDER = "#4b5563";
-const ACCENT = "#22c55e";
-const CARD_BG = "#020617";
-const CARD_BORDER = "rgba(148,163,184,0.4)";
+
+const PRIMARY_TEXT = "var(--velo-text-primary)";
+const MUTED_TEXT = "var(--velo-text-muted)";
+const ACCENT = "#22c55e";               // keep brand green
+
+const CARD_BORDER = "var(--velo-border-card)";
+const CARD_BG = "var(--velo-bg-card)";
 const CARD_SHADOW = "0 8px 20px rgba(0,0,0,0.35)";
+
+
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
 
@@ -722,7 +728,7 @@ const SpeedSessionView: React.FC<SessionViewProps> = ({
             marginTop: "0.25rem",
             borderRadius: "10px",
             border: `1px solid ${CARD_BORDER}`,
-            background: "#020617",
+            background: CARD_BG,
             padding: "0.75rem"
           }}
         >
@@ -858,7 +864,7 @@ const SpeedSessionView: React.FC<SessionViewProps> = ({
                     padding: "0.3rem 0.4rem",
                     borderRadius: "6px",
                     border: "1px solid #4b5563",
-                    background: "#020617",
+                    background: CARD_BG,
                     color: PRIMARY_TEXT,
                     fontSize: "0.85rem",
                     textAlign: "right"
@@ -1097,7 +1103,7 @@ const PowerMechanicsSessionView: React.FC<SessionViewProps> = ({
             marginTop: "0.25rem",
             borderRadius: "10px",
             border: `1px solid ${CARD_BORDER}`,
-            background: "#020617",
+            background: CARD_BG,
             padding: "0.75rem"
           }}
         >
@@ -1424,7 +1430,7 @@ const WarmupSessionView: React.FC<SessionViewProps> = ({
             marginTop: "0.25rem",
             borderRadius: "10px",
             border: `1px solid ${CARD_BORDER}`,
-            background: "#020617",
+            background: CARD_BG,
             padding: "0.75rem"
           }}
         >
@@ -1848,7 +1854,7 @@ const AssessmentSessionView: React.FC<SessionViewProps> = ({
                     padding: "0.75rem",
                     borderRadius: "10px",
                     border: `1px solid ${CARD_BORDER}`,
-                    background: "#020617"
+                    background: CARD_BG
                   }}
                 >
                   <h3
@@ -1916,7 +1922,7 @@ const AssessmentSessionView: React.FC<SessionViewProps> = ({
                               padding: "0.35rem 0.5rem",
                               borderRadius: "6px",
                               border: "1px solid #4b5563",
-                              background: "#020617",
+                              background: CARD_BG,
                               color: PRIMARY_TEXT,
                               fontSize: "0.85rem"
                             }}
@@ -2513,17 +2519,59 @@ const StartSessionPage: React.FC<StartSessionPageProps> = ({
         const initialProgramState: ProgramState =
           mapProgramStateRowToEngineState(programStateRow, start);
 
+        const ALL_WEEKDAYS_FOR_CONFIG: Weekday[] = [
+          "sun",
+          "mon",
+          "tue",
+          "wed",
+          "thu",
+          "fri",
+          "sat"
+        ];
+
+        const parseWeekdayListFromState = (
+          raw: string[] | null | undefined,
+          fallback: Weekday[]
+        ): Weekday[] => {
+          if (!raw || !Array.isArray(raw)) return fallback;
+          const allowed = new Set<Weekday>(ALL_WEEKDAYS_FOR_CONFIG);
+          const out: Weekday[] = [];
+          for (const v of raw) {
+            const key = String(v).toLowerCase() as Weekday;
+            if (allowed.has(key) && !out.includes(key)) {
+              out.push(key);
+            }
+          }
+          if (!out.length) return fallback;
+          out.sort(
+            (a, b) =>
+              ALL_WEEKDAYS_FOR_CONFIG.indexOf(a) -
+              ALL_WEEKDAYS_FOR_CONFIG.indexOf(b)
+          );
+          return out;
+        };
+
         const config: ProgramConfig = {
           age: profileAge ?? 14,
-          inSeason: false,
-          gameDays: [],
-          trainingDays: ["mon", "wed", "fri"] as Weekday[],
-          desiredSessionsPerWeek: 3,
-          desiredSessionMinutes: 45,
+          inSeason: !!programStateRow.in_season,
+          gameDays: parseWeekdayListFromState(
+            programStateRow.game_days ?? null,
+            []
+          ),
+          trainingDays: parseWeekdayListFromState(
+            programStateRow.training_days ?? null,
+            ["mon", "wed", "fri"] as Weekday[]
+          ),
+          desiredSessionsPerWeek:
+            programStateRow.sessions_per_week ?? 3,
+          desiredSessionMinutes:
+            programStateRow.session_minutes ?? 45,
           programStartDate: start,
           horizonWeeks: 2,
-          hasSpaceToHitBalls: true
+          hasSpaceToHitBalls:
+            programStateRow.has_space_to_hit_balls ?? true
         };
+
 
         const completedOverspeedDates = computeCompletedOverspeedDates(
           completedSessionsForProgram
@@ -2759,7 +2807,7 @@ const StartSessionPage: React.FC<StartSessionPageProps> = ({
                     style={{
                       borderRadius: "10px",
                       border: `1px solid ${CARD_BORDER}`,
-                      background: "#020617",
+                      background: CARD_BG,
                       padding: "0.6rem 0.7rem",
                       display: "flex",
                       gap: "0.6rem",
@@ -2774,7 +2822,7 @@ const StartSessionPage: React.FC<StartSessionPageProps> = ({
                         overflow: "hidden",
                         border: `1px solid ${ACCENT}`,
                         background:
-                          "radial-gradient(circle at top, #1f2937 0, #020617 70%)",
+                          "radial-gradient(circle at top, #1f2937 0, CARD_BG 70%)",
                         flexShrink: 0,
                         display: "flex",
                         alignItems: "center",
@@ -2923,7 +2971,7 @@ const StartSessionPage: React.FC<StartSessionPageProps> = ({
                         padding: "0.5rem 0.55rem",
                         borderRadius: "8px",
                         border: `1px solid ${CARD_BORDER}`,
-                        background: "#020617"
+                        background: CARD_BG
                       }}
                     >
                       <div

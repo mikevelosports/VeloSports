@@ -25,6 +25,15 @@ export interface PlayerProgramStateRow {
   phase_start_date: string; // ISO date (YYYY-MM-DD)
   program_start_date: string | null;
 
+  // Program configuration
+  in_season: boolean;
+  training_days: string[]; // Weekday strings
+  game_days: string[];
+  sessions_per_week: number;
+  session_minutes: number;
+  has_space_to_hit_balls: boolean;
+
+  // Session counts
   total_overspeed_sessions: number;
   overspeed_sessions_in_current_phase: number;
   total_counterweight_sessions: number;
@@ -33,19 +42,22 @@ export interface PlayerProgramStateRow {
   sequencing_sessions_by_level: Record<string, number>;
   exit_velo_sessions_by_level: Record<string, number>;
 
+  // Assessment timing
   last_full_assessment_date: string | null;
   last_quick_assessment_date: string | null;
 
+  // Flags computed from stats
   needs_ground_force: boolean;
   needs_sequencing: boolean;
   needs_exit_velo: boolean;
   needs_bat_delivery: boolean;
 
-  // New fields
+  // Aggregates / flags
   total_sessions_completed: number;
   maintenance_extension_requested: boolean;
   next_ramp_up_requested: boolean;
 
+  // Timestamps
   created_at: string;
   updated_at: string;
 }
@@ -110,6 +122,15 @@ const buildDefaultProgramState = (
     phase_start_date: startDate,
     program_start_date: startDate,
 
+    // Default program configuration
+    in_season: false,
+    training_days: ["mon", "wed", "fri"],
+    game_days: [],
+    sessions_per_week: 3,
+    session_minutes: 45,
+    has_space_to_hit_balls: true,
+
+    // Counts
     total_overspeed_sessions: 0,
     overspeed_sessions_in_current_phase: 0,
     total_counterweight_sessions: 0,
@@ -220,7 +241,7 @@ const computeNextProgramState = (
 
   // ---- phase transitions ----
 
-  const phase = prev.current_phase;
+  const phase = prev.current_phase as PhaseId;
   const daysInPhase = diffDays(completionDate, prev.phase_start_date);
 
   const isRampPhase =
@@ -230,7 +251,6 @@ const computeNextProgramState = (
 
   // NOTE:
   // - Ramp -> Primary: after 6 OverSpeed sessions in THIS phase.
-  //   (2-week window is used only for notifications, not phase change.)
   // - Primary -> Maintenance: after 25 OS sessions in phase OR 10 weeks.
   if (isOverspeed) {
     if (isRampPhase && next.overspeed_sessions_in_current_phase >= 6) {
@@ -358,9 +378,29 @@ export const updatePlayerProgramStateForSession = async (
     const row = stateRows[0] as any;
     existing = {
       player_id: row.player_id,
-      current_phase: row.current_phase,
+      current_phase: row.current_phase as PhaseId,
       phase_start_date: row.phase_start_date,
       program_start_date: row.program_start_date,
+
+      // Config (with sane defaults if columns are missing/null)
+      in_season:
+        typeof row.in_season === "boolean" ? row.in_season : false,
+      training_days: Array.isArray(row.training_days)
+        ? row.training_days
+        : ["mon", "wed", "fri"],
+      game_days: Array.isArray(row.game_days) ? row.game_days : [],
+      sessions_per_week:
+        typeof row.sessions_per_week === "number"
+          ? row.sessions_per_week
+          : 3,
+      session_minutes:
+        typeof row.session_minutes === "number"
+          ? row.session_minutes
+          : 45,
+      has_space_to_hit_balls:
+        typeof row.has_space_to_hit_balls === "boolean"
+          ? row.has_space_to_hit_balls
+          : true,
 
       total_overspeed_sessions: row.total_overspeed_sessions ?? 0,
       overspeed_sessions_in_current_phase:
@@ -403,6 +443,15 @@ export const updatePlayerProgramStateForSession = async (
     phase_start_date: nextState.phase_start_date,
     program_start_date: nextState.program_start_date,
 
+    // Config
+    in_season: nextState.in_season,
+    training_days: nextState.training_days,
+    game_days: nextState.game_days,
+    sessions_per_week: nextState.sessions_per_week,
+    session_minutes: nextState.session_minutes,
+    has_space_to_hit_balls: nextState.has_space_to_hit_balls,
+
+    // Counts
     total_overspeed_sessions: nextState.total_overspeed_sessions,
     overspeed_sessions_in_current_phase:
       nextState.overspeed_sessions_in_current_phase,
@@ -504,6 +553,15 @@ router.post(
         phase_start_date: baseState.phase_start_date,
         program_start_date: baseState.program_start_date,
 
+        // Config
+        in_season: baseState.in_season,
+        training_days: baseState.training_days,
+        game_days: baseState.game_days,
+        sessions_per_week: baseState.sessions_per_week,
+        session_minutes: baseState.session_minutes,
+        has_space_to_hit_balls: baseState.has_space_to_hit_balls,
+
+        // Counts
         total_overspeed_sessions: baseState.total_overspeed_sessions,
         overspeed_sessions_in_current_phase:
           baseState.overspeed_sessions_in_current_phase,
@@ -524,22 +582,24 @@ router.post(
         needs_exit_velo: baseState.needs_exit_velo,
         needs_bat_delivery: baseState.needs_bat_delivery,
 
-        total_sessions_completed: 0,
-        maintenance_extension_requested: false,
-        next_ramp_up_requested: false
+        total_sessions_completed: baseState.total_sessions_completed,
+        maintenance_extension_requested:
+          baseState.maintenance_extension_requested,
+        next_ramp_up_requested: baseState.next_ramp_up_requested
       };
 
-      const { data: existingRows, error: selectError } = await supabaseAdmin
-        .from("player_program_state")
-        .select("player_id")
-        .eq("player_id", playerId)
-        .limit(1);
+      const { data: existingRows, error: selectError } =
+        await supabaseAdmin
+          .from("player_program_state")
+          .select("player_id")
+          .eq("player_id", playerId)
+          .limit(1);
 
       if (selectError) {
         throw selectError;
       }
 
-      let row;
+      let row: any;
       if (!existingRows || existingRows.length === 0) {
         const { data, error: insertError } = await supabaseAdmin
           .from("player_program_state")
@@ -686,6 +746,171 @@ router.post(
       }
 
       return res.json(updated);
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ---- API: update program settings (training days, season, etc.) ----
+
+router.post(
+  "/players/:playerId/program-settings",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { playerId } = req.params;
+      if (!playerId) {
+        return res.status(400).json({ error: "playerId is required" });
+      }
+
+      const {
+        in_season,
+        training_days,
+        game_days,
+        sessions_per_week,
+        session_minutes,
+        has_space_to_hit_balls,
+        program_start_date
+      } = req.body as {
+        in_season?: boolean;
+        training_days?: string[];
+        game_days?: string[];
+        sessions_per_week?: number;
+        session_minutes?: number;
+        has_space_to_hit_balls?: boolean;
+        program_start_date?: string;
+      };
+
+      const allWeekdays = [
+        "sun",
+        "mon",
+        "tue",
+        "wed",
+        "thu",
+        "fri",
+        "sat"
+      ];
+
+      const normalizeDays = (
+        raw: string[] | undefined,
+        fallback: string[]
+      ): string[] => {
+        if (!raw || !Array.isArray(raw)) return fallback;
+        const set = new Set<string>();
+        for (const v of raw) {
+          const k = String(v).toLowerCase();
+          if (allWeekdays.includes(k)) {
+            set.add(k);
+          }
+        }
+        return set.size ? Array.from(set) : fallback;
+      };
+
+      const today = todayIso();
+
+      const { data: existingRows, error: selectError } =
+        await supabaseAdmin
+          .from("player_program_state")
+          .select("*")
+          .eq("player_id", playerId)
+          .limit(1);
+
+      if (selectError) {
+        throw selectError;
+      }
+
+      const normalizedTrainingDays = normalizeDays(
+        training_days,
+        ["mon", "wed", "fri"]
+      );
+      const normalizedGameDays = normalizeDays(game_days, []);
+
+      let row: any;
+
+      if (!existingRows || existingRows.length === 0) {
+        const start = program_start_date || today;
+        const baseState = buildDefaultProgramState(playerId, start);
+
+        const payload = {
+          ...baseState,
+          in_season:
+            typeof in_season === "boolean"
+              ? in_season
+              : baseState.in_season,
+          training_days: normalizedTrainingDays,
+          game_days: normalizedGameDays,
+          sessions_per_week:
+            typeof sessions_per_week === "number"
+              ? sessions_per_week
+              : baseState.sessions_per_week,
+          session_minutes:
+            typeof session_minutes === "number"
+              ? session_minutes
+              : baseState.session_minutes,
+          has_space_to_hit_balls:
+            typeof has_space_to_hit_balls === "boolean"
+              ? has_space_to_hit_balls
+              : baseState.has_space_to_hit_balls,
+          program_start_date: start
+        };
+
+        const { data, error: insertError } = await supabaseAdmin
+          .from("player_program_state")
+          .insert(payload)
+          .select("*")
+          .single();
+
+        if (insertError) throw insertError;
+        row = data;
+      } else {
+        const existing = existingRows[0] as any;
+        const start =
+          program_start_date ||
+          existing.program_start_date ||
+          today;
+
+        const payload = {
+          in_season:
+            typeof in_season === "boolean"
+              ? in_season
+              : !!existing.in_season,
+          training_days: normalizedTrainingDays.length
+            ? normalizedTrainingDays
+            : Array.isArray(existing.training_days)
+            ? existing.training_days
+            : ["mon", "wed", "fri"],
+          game_days: normalizedGameDays.length
+            ? normalizedGameDays
+            : Array.isArray(existing.game_days)
+            ? existing.game_days
+            : [],
+          sessions_per_week:
+            typeof sessions_per_week === "number"
+              ? sessions_per_week
+              : existing.sessions_per_week ?? 3,
+          session_minutes:
+            typeof session_minutes === "number"
+              ? session_minutes
+              : existing.session_minutes ?? 45,
+          has_space_to_hit_balls:
+            typeof has_space_to_hit_balls === "boolean"
+              ? has_space_to_hit_balls
+              : existing.has_space_to_hit_balls ?? true,
+          program_start_date: start
+        };
+
+        const { data, error: updateError } = await supabaseAdmin
+          .from("player_program_state")
+          .update(payload)
+          .eq("player_id", playerId)
+          .select("*")
+          .single();
+
+        if (updateError) throw updateError;
+        row = data;
+      }
+
+      return res.json(row);
     } catch (err) {
       next(err);
     }

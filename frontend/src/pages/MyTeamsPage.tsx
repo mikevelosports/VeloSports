@@ -11,11 +11,12 @@ import {
   type TeamMemberRole
 } from "../api/teams";
 
-const PRIMARY_TEXT = "#e5e7eb";
-const MUTED_TEXT = "#9ca3af";
-const CARD_BG = "#020617";
-const CARD_BORDER = "rgba(148,163,184,0.4)";
-const ACCENT = "#22c55e";
+const PRIMARY_TEXT = "var(--velo-text-primary)";
+const MUTED_TEXT = "var(--velo-text-muted)";
+const ACCENT = "var(--velo-accent)";
+const CARD_BG = "var(--velo-bg-card)";
+const CARD_BORDER = "var(--velo-border-card)";
+
 
 interface MyTeamsPageProps {
   onBack: () => void;
@@ -288,7 +289,7 @@ const MyTeamsPage: React.FC<MyTeamsPageProps> = ({ onBack }) => {
               padding: "0.9rem",
               borderRadius: "10px",
               border: `1px solid ${CARD_BORDER}`,
-              background: "#020617"
+              background: CARD_BG
             }}
           >
             <div
@@ -323,7 +324,7 @@ const MyTeamsPage: React.FC<MyTeamsPageProps> = ({ onBack }) => {
                   padding: "0.3rem 0.7rem",
                   borderRadius: "999px",
                   border: `1px solid ${CARD_BORDER}`,
-                  background: "#020617",
+                  background: CARD_BG,
                   color: PRIMARY_TEXT,
                   fontSize: "0.8rem",
                   cursor: "pointer"
@@ -365,7 +366,7 @@ const MyTeamsPage: React.FC<MyTeamsPageProps> = ({ onBack }) => {
                         padding: "0.4rem 0.6rem",
                         borderRadius: "8px",
                         border: `1px solid ${CARD_BORDER}`,
-                        background: "#020617",
+                        background: CARD_BG,
                         color: PRIMARY_TEXT,
                         fontSize: "0.85rem"
                       }}
@@ -392,7 +393,7 @@ const MyTeamsPage: React.FC<MyTeamsPageProps> = ({ onBack }) => {
                         padding: "0.4rem 0.6rem",
                         borderRadius: "8px",
                         border: `1px solid ${CARD_BORDER}`,
-                        background: "#020617",
+                        background: CARD_BG,
                         color: PRIMARY_TEXT,
                         fontSize: "0.85rem"
                       }}
@@ -419,7 +420,7 @@ const MyTeamsPage: React.FC<MyTeamsPageProps> = ({ onBack }) => {
                         padding: "0.4rem 0.6rem",
                         borderRadius: "8px",
                         border: `1px solid ${CARD_BORDER}`,
-                        background: "#020617",
+                        background: CARD_BG,
                         color: PRIMARY_TEXT,
                         fontSize: "0.85rem"
                       }}
@@ -448,7 +449,7 @@ const MyTeamsPage: React.FC<MyTeamsPageProps> = ({ onBack }) => {
                         padding: "0.4rem 0.6rem",
                         borderRadius: "8px",
                         border: `1px solid ${CARD_BORDER}`,
-                        background: "#020617",
+                        background: CARD_BG,
                         color: PRIMARY_TEXT,
                         fontSize: "0.85rem"
                       }}
@@ -475,7 +476,7 @@ const MyTeamsPage: React.FC<MyTeamsPageProps> = ({ onBack }) => {
                         padding: "0.4rem 0.6rem",
                         borderRadius: "8px",
                         border: `1px solid ${CARD_BORDER}`,
-                        background: "#020617",
+                        background: CARD_BG,
                         color: PRIMARY_TEXT,
                         fontSize: "0.85rem"
                       }}
@@ -504,7 +505,7 @@ const MyTeamsPage: React.FC<MyTeamsPageProps> = ({ onBack }) => {
                       padding: "0.4rem 0.6rem",
                       borderRadius: "8px",
                       border: `1px solid ${CARD_BORDER}`,
-                      background: "#020617",
+                      background: CARD_BG,
                       color: PRIMARY_TEXT,
                       fontSize: "0.85rem",
                       resize: "vertical"
@@ -555,7 +556,7 @@ const MyTeamsPage: React.FC<MyTeamsPageProps> = ({ onBack }) => {
               padding: "0.9rem",
               borderRadius: "10px",
               border: `1px solid ${CARD_BORDER}`,
-              background: "#020617"
+              background: CARD_BG
             }}
           >
             <h3
@@ -622,7 +623,7 @@ const MyTeamsPage: React.FC<MyTeamsPageProps> = ({ onBack }) => {
                             border: `1px solid ${
                               isSelected ? ACCENT : CARD_BORDER
                             }`,
-                            background: isSelected ? "#064e3b" : "#020617",
+                            background: isSelected ? "#064e3b" : CARD_BG,
                             color: PRIMARY_TEXT,
                             cursor: "pointer"
                           }}
@@ -712,7 +713,7 @@ const MyTeamsPage: React.FC<MyTeamsPageProps> = ({ onBack }) => {
                             border: `1px solid ${
                               isSelected ? ACCENT : CARD_BORDER
                             }`,
-                            background: isSelected ? "#064e3b" : "#020617",
+                            background: isSelected ? "#064e3b" : CARD_BG,
                             color: PRIMARY_TEXT,
                             cursor: "pointer"
                           }}
@@ -754,7 +755,7 @@ const MyTeamsPage: React.FC<MyTeamsPageProps> = ({ onBack }) => {
                                   borderRadius: "999px",
                                   border: `1px solid ${CARD_BORDER}`,
                                   color: PRIMARY_TEXT,
-                                  background: "#020617",
+                                  background: CARD_BG,
                                   whiteSpace: "nowrap"
                                 }}
                               >
@@ -779,7 +780,7 @@ const MyTeamsPage: React.FC<MyTeamsPageProps> = ({ onBack }) => {
               padding: "0.9rem",
               borderRadius: "10px",
               border: `1px solid ${CARD_BORDER}`,
-              background: "#020617"
+              background: CARD_BG
             }}
           >
             {!selectedTeamId && (
@@ -922,7 +923,7 @@ const MyTeamsPage: React.FC<MyTeamsPageProps> = ({ onBack }) => {
                               padding: "0.35rem 0.45rem",
                               borderRadius: "8px",
                               border: `1px solid ${CARD_BORDER}`,
-                              background: "#020617",
+                              background: CARD_BG,
                               display: "flex",
                               justifyContent: "space-between",
                               gap: "0.5rem",
@@ -1021,7 +1022,7 @@ const MyTeamsPage: React.FC<MyTeamsPageProps> = ({ onBack }) => {
                               padding: "0.35rem 0.45rem",
                               borderRadius: "8px",
                               border: `1px dashed ${CARD_BORDER}`,
-                              background: "#020617",
+                              background: CARD_BG,
                               display: "flex",
                               justifyContent: "space-between",
                               gap: "0.5rem",
@@ -1112,7 +1113,7 @@ const MyTeamsPage: React.FC<MyTeamsPageProps> = ({ onBack }) => {
                           padding: "0.4rem 0.6rem",
                           borderRadius: "8px",
                           border: `1px solid ${CARD_BORDER}`,
-                          background: "#020617",
+                          background: CARD_BG,
                           color: PRIMARY_TEXT,
                           fontSize: "0.85rem"
                         }}
@@ -1140,7 +1141,7 @@ const MyTeamsPage: React.FC<MyTeamsPageProps> = ({ onBack }) => {
                           padding: "0.4rem 0.6rem",
                           borderRadius: "8px",
                           border: `1px solid ${CARD_BORDER}`,
-                          background: "#020617",
+                          background: CARD_BG,
                           color: PRIMARY_TEXT,
                           fontSize: "0.85rem"
                         }}
@@ -1168,7 +1169,7 @@ const MyTeamsPage: React.FC<MyTeamsPageProps> = ({ onBack }) => {
                           padding: "0.4rem 0.6rem",
                           borderRadius: "8px",
                           border: `1px solid ${CARD_BORDER}`,
-                          background: "#020617",
+                          background: CARD_BG,
                           color: PRIMARY_TEXT,
                           fontSize: "0.85rem"
                         }}
@@ -1197,7 +1198,7 @@ const MyTeamsPage: React.FC<MyTeamsPageProps> = ({ onBack }) => {
                           padding: "0.4rem 0.6rem",
                           borderRadius: "8px",
                           border: `1px solid ${CARD_BORDER}`,
-                          background: "#020617",
+                          background: CARD_BG,
                           color: PRIMARY_TEXT,
                           fontSize: "0.85rem"
                         }}

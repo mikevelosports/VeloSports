@@ -11,12 +11,14 @@ import type {
   ProtocolStep
 } from "../api/client";
 
-const PRIMARY_TEXT = "#e5e7eb";
-const MUTED_TEXT = "#9ca3af";
-const CARD_BORDER = "rgba(148,163,184,0.4)";
-const CARD_BG = "#020617";
+const PRIMARY_TEXT = "var(--velo-text-primary)";
+const MUTED_TEXT = "var(--velo-text-muted)";
+const ACCENT = "#22c55e";               // keep brand green
+
+const CARD_BORDER = "var(--velo-border-card)";
+const CARD_BG = "var(--velo-bg-card)";
 const CARD_SHADOW = "0 8px 20px rgba(0,0,0,0.35)";
-const ACCENT = "#22c55e";
+
 
 type CategoryKey =
   | "overspeed"
@@ -252,7 +254,7 @@ const SpeedProtocolDetailsView: React.FC<{ protocol: ProtocolWithSteps }> = ({
             marginTop: "0.25rem",
             borderRadius: "10px",
             border: `1px solid ${CARD_BORDER}`,
-            background: "#020617",
+            background: CARD_BG,
             padding: "0.75rem"
           }}
         >
@@ -517,7 +519,7 @@ const PowerMechanicsProtocolDetailsView: React.FC<{
             marginTop: "0.25rem",
             borderRadius: "10px",
             border: `1px solid ${CARD_BORDER}`,
-            background: "#020617",
+            background: CARD_BG,
             padding: "0.75rem"
           }}
         >
@@ -775,7 +777,7 @@ const WarmupProtocolDetailsView: React.FC<{ protocol: ProtocolWithSteps }> = ({
             marginTop: "0.25rem",
             borderRadius: "10px",
             border: `1px solid ${CARD_BORDER}`,
-            background: "#020617",
+            background: CARD_BG,
             padding: "0.75rem"
           }}
         >
@@ -1039,7 +1041,7 @@ const AssessmentProtocolDetailsView: React.FC<{
             padding: "0.75rem",
             borderRadius: "10px",
             border: `1px solid ${CARD_BORDER}`,
-            background: "#020617"
+            background: CARD_BG
           }}
         >
           <h3

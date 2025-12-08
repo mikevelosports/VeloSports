@@ -662,39 +662,61 @@ function getMetricKeyForMedal(medal: MedalRow): string | null {
   const t = normalize(medal.threshold_type);
   const mc = (medal.metric_code || "").toLowerCase();
 
-  // Special cases where the metric is actually a different field name
-  switch (t) {
-    // "Any session" medals (general_*_sessions)
-    case "session_count":
-      return "total_sessions_completed";
-
-    // Counterweight medals
-    case "counterweight_session_count":
-      return "total_counterweight_sessions";
-
-    // If you ever decide to track overspeed session counts separately:
-    case "overspeed_session_count":
-      return "total_overspeed_sessions";
-
-    // Profile completion specials
-    case "complete_profile":
-      return "profile_complete";
+  // 1) Boolean-style metrics (profile completion)
+  if (t === "complete_profile" || mc === "profile_complete") {
+    return "profile_complete";
   }
 
-  // For gains + per‑protocol counts, treat threshold_type itself as the metric key.
-  // This assumes you either already have, or will add, matching columns
-  // in player_program_state, e.g.:
-  //  - exit_velo_percent_gain
-  //  - bat_speed_percent_gain
-  //  - dynamic_session_count
-  //  - bat_delivery_session_count
-  //  - ground_force_1_session_count, etc.
+  /**
+   * 2) Alias map for session-count style medals.
+   *
+   * We normalize a few different strings (coming from metric_code or threshold_type)
+   * to the *actual* column names that exist in player_medal_metrics.
+   */
+  const aliasMap: Record<string, string> = {
+    // "Any session" medals → player_medal_metrics.session_count
+    session_count: "session_count",
+    total_sessions_completed: "session_count",
+    sessions_completed: "session_count",
+
+    // OverSpeed session medals
+    overspeed_session_count: "overspeed_session_count",
+    total_overspeed_sessions: "overspeed_session_count",
+
+    // Counterweight session medals
+    counterweight_session_count: "counterweight_session_count",
+    total_counterweight_sessions: "counterweight_session_count"
+  };
+
+  const candidates = [t, mc];
+  for (const c of candidates) {
+    if (c && aliasMap[c]) {
+      return aliasMap[c];
+    }
+  }
+
+  /**
+   * 3) Metrics where threshold_type / metric_code directly matches a column
+   *    in player_medal_metrics.
+   */
   const metricLikeTypes = new Set<string>([
+    // Top-level session counters
+    "session_count",
+    "overspeed_session_count",
+    "counterweight_session_count",
+    "power_mechanics_session_count",
+    "exit_velo_application_session_count",
+    "warm_up_session_count",
+    "assessments_session_count",
+
+    // Gains / velo-bat metrics
     "exit_velo_percent_gain",
     "bat_speed_percent_gain",
     "velo_bat_base_bat_percent_above_game_bat",
     "velo_bat_green_sleeve_percent_above_game_bat",
     "velo_bat_fl_percent_above_game_bat",
+
+    // Per-protocol / per-level counts
     "dynamic_session_count",
     "bat_delivery_session_count",
     "ground_force_1_session_count",
@@ -702,20 +724,24 @@ function getMetricKeyForMedal(medal: MedalRow): string | null {
     "ground_force_3_session_count",
     "sequencing_1_session_count",
     "sequencing_2_session_count",
+    "sequencing_3_session_count",
     "exit_velo_application_1_session_count",
     "exit_velo_application_2_session_count",
     "exit_velo_application_3_session_count"
   ]);
 
-  if (metricLikeTypes.has(t)) {
-    return t;
-  }
+  if (metricLikeTypes.has(t)) return t;
+  if (metricLikeTypes.has(mc)) return mc;
 
-  // Fallback: use metric_code if it's something we know
+  /**
+   * 4) Fallback: if metric_code is set to something custom and you've
+   *    added a matching column to player_medal_metrics, just use it directly.
+   */
   if (mc) return mc;
 
   return null;
 }
+
 
 /**
  * For event-based medals, what "event key" should we match against eventCodes?

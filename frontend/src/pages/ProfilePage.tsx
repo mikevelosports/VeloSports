@@ -117,7 +117,7 @@ const AppSettingsSection: React.FC = () => {
       border: `1px solid ${
         isActive ? ACCENT : "rgba(75,85,99,0.8)"
       }`,
-      background: isActive ? ACCENT : "#020617",
+      background: isActive ? ACCENT : CARD_BG,
       color: isActive ? "#0f172a" : PRIMARY_TEXT,
       fontSize: "0.8rem",
       cursor: "pointer"
@@ -259,7 +259,7 @@ const AppSettingsSection: React.FC = () => {
               border: `1px solid ${
                 notificationsEnabled ? ACCENT : "rgba(75,85,99,0.8)"
               }`,
-              background: notificationsEnabled ? ACCENT : "#020617",
+              background: notificationsEnabled ? ACCENT : CARD_BG,
               color: notificationsEnabled ? "#0f172a" : PRIMARY_TEXT,
               fontSize: "0.8rem",
               cursor: "pointer"
@@ -489,7 +489,7 @@ const LegalAndPrivacySection: React.FC = () => {
                   borderRadius: "10px",
                   border: `1px solid ${CARD_BORDER}`,
                   background:
-                    "radial-gradient(circle at top, rgba(15,23,42,0.9) 0, #020617 65%)",
+                    "radial-gradient(circle at top, rgba(15,23,42,0.9) 0, CARD_BG 65%)",
                   padding: "0.75rem 0.85rem",
                   display: "flex",
                   flexDirection: "column",
@@ -657,7 +657,7 @@ const LegalAndPrivacySection: React.FC = () => {
           padding: "0.75rem 0.85rem",
           borderRadius: "10px",
           border: `1px solid ${CARD_BORDER}`,
-          background: "#020617",
+          background: CARD_BG,
           maxHeight: "360px",
           overflowY: "auto",
           fontSize: "0.8rem",
@@ -1234,7 +1234,7 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ playerIdOverride }) => {
                 overflow: "hidden",
                 border: `2px solid ${ACCENT}`,
                 background:
-                  "radial-gradient(circle at top, #1f2937 0, #020617 70%)",
+                  "radial-gradient(circle at top, #1f2937 0, CARD_BG 70%)",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
@@ -1633,7 +1633,7 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ playerIdOverride }) => {
                   overflow: "hidden",
                   border: `1px solid ${CARD_BORDER}`,
                   background:
-                    "radial-gradient(circle at top, #1f2937 0, #020617 70%)",
+                    "radial-gradient(circle at top, #1f2937 0, CARD_BG 70%)",
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
@@ -1692,7 +1692,7 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ playerIdOverride }) => {
                     padding: "0.45rem 0.6rem",
                     borderRadius: "6px",
                     border: `1px solid ${CARD_BORDER}`,
-                    background: "#020617",
+                    background: CARD_BG,
                     color: PRIMARY_TEXT,
                     fontSize: "0.9rem"
                   }}
@@ -1730,7 +1730,7 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ playerIdOverride }) => {
                   padding: "0.45rem 0.6rem",
                   borderRadius: "6px",
                   border: `1px solid ${CARD_BORDER}`,
-                  background: "#020617",
+                  background: CARD_BG,
                   color: PRIMARY_TEXT,
                   fontSize: "0.9rem"
                 }}
@@ -1758,7 +1758,7 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ playerIdOverride }) => {
                   padding: "0.45rem 0.6rem",
                   borderRadius: "6px",
                   border: `1px solid ${CARD_BORDER}`,
-                  background: "#020617",
+                  background: CARD_BG,
                   color: PRIMARY_TEXT,
                   fontSize: "0.9rem"
                 }}
@@ -1795,7 +1795,7 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ playerIdOverride }) => {
                     padding: "0.4rem 0.5rem",
                     borderRadius: "6px",
                     border: `1px solid ${CARD_BORDER}`,
-                    background: "#020617",
+                    background: CARD_BG,
                     color: PRIMARY_TEXT,
                     fontSize: "0.9rem"
                   }}
@@ -1820,7 +1820,7 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ playerIdOverride }) => {
                     padding: "0.4rem 0.5rem",
                     borderRadius: "6px",
                     border: `1px solid ${CARD_BORDER}`,
-                    background: "#020617",
+                    background: CARD_BG,
                     color: PRIMARY_TEXT,
                     fontSize: "0.9rem"
                   }}
@@ -1858,7 +1858,7 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ playerIdOverride }) => {
                   padding: "0.45rem 0.6rem",
                   borderRadius: "6px",
                   border: `1px solid ${CARD_BORDER}`,
-                  background: "#020617",
+                  background: CARD_BG,
                   color: PRIMARY_TEXT,
                   fontSize: "0.9rem"
                 }}
@@ -1915,7 +1915,7 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ playerIdOverride }) => {
                     padding: "0.45rem 0.6rem",
                     borderRadius: "6px",
                     border: `1px solid ${CARD_BORDER}`,
-                    background: "#020617",
+                    background: CARD_BG,
                     color: PRIMARY_TEXT,
                     fontSize: "0.9rem"
                   }}
@@ -1942,7 +1942,7 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ playerIdOverride }) => {
                     padding: "0.45rem 0.6rem",
                     borderRadius: "6px",
                     border: `1px solid ${CARD_BORDER}`,
-                    background: "#020617",
+                    background: CARD_BG,
                     color: PRIMARY_TEXT,
                     fontSize: "0.9rem"
                   }}
@@ -1968,7 +1968,7 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ playerIdOverride }) => {
                     padding: "0.45rem 0.6rem",
                     borderRadius: "6px",
                     border: `1px solid ${CARD_BORDER}`,
-                    background: "#020617",
+                    background: CARD_BG,
                     color: PRIMARY_TEXT,
                     fontSize: "0.9rem"
                   }}
@@ -1994,7 +1994,7 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ playerIdOverride }) => {
                     padding: "0.45rem 0.6rem",
                     borderRadius: "6px",
                     border: `1px solid ${CARD_BORDER}`,
-                    background: "#020617",
+                    background: CARD_BG,
                     color: PRIMARY_TEXT,
                     fontSize: "0.9rem"
                   }}
@@ -2020,7 +2020,7 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ playerIdOverride }) => {
                     padding: "0.45rem 0.6rem",
                     borderRadius: "6px",
                     border: `1px solid ${CARD_BORDER}`,
-                    background: "#020617",
+                    background: CARD_BG,
                     color: PRIMARY_TEXT,
                     fontSize: "0.9rem"
                   }}
@@ -2046,7 +2046,7 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ playerIdOverride }) => {
                     padding: "0.45rem 0.6rem",
                     borderRadius: "6px",
                     border: `1px solid ${CARD_BORDER}`,
-                    background: "#020617",
+                    background: CARD_BG,
                     color: PRIMARY_TEXT,
                     fontSize: "0.9rem"
                   }}
@@ -2093,7 +2093,7 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ playerIdOverride }) => {
                     padding: "0.45rem 0.6rem",
                     borderRadius: "6px",
                     border: `1px solid ${CARD_BORDER}`,
-                    background: "#020617",
+                    background: CARD_BG,
                     color: PRIMARY_TEXT,
                     fontSize: "0.9rem"
                   }}
@@ -2123,7 +2123,7 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ playerIdOverride }) => {
                     padding: "0.45rem 0.6rem",
                     borderRadius: "6px",
                     border: `1px solid ${CARD_BORDER}`,
-                    background: "#020617",
+                    background: CARD_BG,
                     color: PRIMARY_TEXT,
                     fontSize: "0.9rem"
                   }}
@@ -2148,7 +2148,7 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ playerIdOverride }) => {
                     padding: "0.45rem 0.6rem",
                     borderRadius: "6px",
                     border: `1px solid ${CARD_BORDER}`,
-                    background: "#020617",
+                    background: CARD_BG,
                     color: PRIMARY_TEXT,
                     fontSize: "0.9rem"
                   }}
@@ -2182,7 +2182,7 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ playerIdOverride }) => {
                     padding: "0.45rem 0.6rem",
                     borderRadius: "6px",
                     border: `1px solid ${CARD_BORDER}`,
-                    background: "#020617",
+                    background: CARD_BG,
                     color: PRIMARY_TEXT,
                     fontSize: "0.9rem"
                   }}
@@ -2240,7 +2240,7 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ playerIdOverride }) => {
                     padding: "0.45rem 0.6rem",
                     borderRadius: "6px",
                     border: `1px solid ${CARD_BORDER}`,
-                    background: "#020617",
+                    background: CARD_BG,
                     color: PRIMARY_TEXT,
                     fontSize: "0.9rem"
                   }}
@@ -2267,7 +2267,7 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ playerIdOverride }) => {
                     padding: "0.45rem 0.6rem",
                     borderRadius: "6px",
                     border: `1px solid ${CARD_BORDER}`,
-                    background: "#020617",
+                    background: CARD_BG,
                     color: PRIMARY_TEXT,
                     fontSize: "0.9rem"
                   }}
@@ -2361,7 +2361,7 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ playerIdOverride }) => {
                     padding: "0.45rem 0.6rem",
                     borderRadius: "6px",
                     border: `1px solid ${CARD_BORDER}`,
-                    background: "#020617",
+                    background: CARD_BG,
                     color: PRIMARY_TEXT,
                     fontSize: "0.9rem"
                   }}
@@ -2391,7 +2391,7 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ playerIdOverride }) => {
                     padding: "0.45rem 0.6rem",
                     borderRadius: "6px",
                     border: `1px solid ${CARD_BORDER}`,
-                    background: "#020617",
+                    background: CARD_BG,
                     color: PRIMARY_TEXT,
                     fontSize: "0.9rem"
                   }}

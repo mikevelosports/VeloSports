@@ -15,7 +15,8 @@ import {
   mapProgramStateRowToEngineState,
   type PlayerProgramStateRow,
   extendMaintenancePhase,
-  startNextRampUpPhase
+  startNextRampUpPhase,
+  updatePlayerProgramSettings
 } from "../api/programState";
 import {
   fetchPlayerSessionsForPlayer,
@@ -23,17 +24,17 @@ import {
   quickCompleteProtocolForPlayer
 } from "../api/sessions";
 
-const PRIMARY_TEXT = "#e5e7eb";
-const MUTED_TEXT = "#9ca3af";
-const CARD_BG = "#020617";
-const CARD_BORDER = "rgba(148,163,184,0.4)";
-const ACCENT = "#22c55e"; // green: current planned training days
-
 const BLUE = "#38bdf8"; // blue accents / quick-complete button
 const COMPLETED_BLUE = "#60a5fa"; // completed-day blue (calendar)
 const AMBER = "#f59e0b"; // amber: future training days
 const YELLOW = "#facc15"; // lighter yellow: game days
 const RED = "#ef4444"; // keep red for errors / warnings
+
+const PRIMARY_TEXT = "var(--velo-text-primary)";
+const MUTED_TEXT = "var(--velo-text-muted)";
+const ACCENT = "#22c55e";               // keep brand green
+const CARD_BORDER = "var(--velo-border-card)";
+const CARD_BG = "var(--velo-bg-card)";
 
 interface MyProgramPageProps {
   onBack: () => void;
@@ -42,6 +43,27 @@ interface MyProgramPageProps {
 }
 
 const ALL_WEEKDAYS: Weekday[] = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
+
+const parseWeekdayList = (
+  raw: string[] | null | undefined,
+  fallback: Weekday[]
+): Weekday[] => {
+  if (!raw || !Array.isArray(raw)) return fallback;
+  const allowed = new Set<Weekday>(ALL_WEEKDAYS);
+  const result: Weekday[] = [];
+  for (const v of raw) {
+    const key = String(v).toLowerCase() as Weekday;
+    if (allowed.has(key) && !result.includes(key)) {
+      result.push(key);
+    }
+  }
+  if (!result.length) return fallback;
+  result.sort(
+    (a, b) => ALL_WEEKDAYS.indexOf(a) - ALL_WEEKDAYS.indexOf(b)
+  );
+  return result;
+};
+
 
 const weekdayLabel = (d: Weekday): string => {
   switch (d) {
@@ -407,9 +429,11 @@ const MyProgramPage: React.FC<MyProgramPageProps> = ({
   const [togglingNextRampUp, setTogglingNextRampUp] = useState(false);
 
   const [settingsExpanded, setSettingsExpanded] = useState<boolean>(true);
+  const [savingProgramSettings, setSavingProgramSettings] = useState(false);
   const [resettingProgram, setResettingProgram] = useState(false);
   const [scheduleGenerated, setScheduleGenerated] = useState(false);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
+  
 
   const [calendarMonth, setCalendarMonth] = useState<Date>(() =>
     getMonthStart(new Date())
@@ -669,20 +693,44 @@ const MyProgramPage: React.FC<MyProgramPageProps> = ({
         const row = await fetchPlayerProgramState(playerId);
         setApiProgramState(row);
 
-        if (row?.total_sessions_completed != null) {
+        if (!row) {
+          setTotalSessionsCompleted(0);
+          return;
+        }
+
+        if (row.total_sessions_completed != null) {
           setTotalSessionsCompleted(row.total_sessions_completed);
         } else {
           setTotalSessionsCompleted(0);
         }
 
-        if (row?.program_start_date) {
+        if (row.program_start_date) {
           setStartDate(row.program_start_date);
         }
 
-        if (row) {
-          setSettingsExpanded(false);
-          setScheduleGenerated(true);
+        // Hydrate config from backend
+        setInSeason(!!row.in_season);
+        setTrainingDays(
+          parseWeekdayList(
+            row.training_days ?? null,
+            ["mon", "wed", "fri"]
+          )
+        );
+        setGameDays(
+          parseWeekdayList(row.game_days ?? null, [])
+        );
+        if (row.sessions_per_week != null) {
+          setSessionsPerWeek(row.sessions_per_week);
         }
+        if (row.session_minutes != null) {
+          setSessionMinutes(row.session_minutes);
+        }
+        if (row.has_space_to_hit_balls != null) {
+          setHasSpaceToHitBalls(row.has_space_to_hit_balls);
+        }
+
+        setSettingsExpanded(false);
+        setScheduleGenerated(true);
       } catch (err: any) {
         setProgramStateError(
           err?.message ?? "Failed to load program status"
@@ -691,6 +739,7 @@ const MyProgramPage: React.FC<MyProgramPageProps> = ({
         setProgramStateLoading(false);
       }
     };
+
 
     load(targetPlayerId);
   }, [targetPlayerId]);
@@ -737,9 +786,25 @@ const MyProgramPage: React.FC<MyProgramPageProps> = ({
       setProgramStateError(null);
 
       const row = await resetPlayerProgramState(targetPlayerId);
+      
       const start = row.program_start_date ?? todayIso();
       setStartDate(start);
       setTotalSessionsCompleted(row.total_sessions_completed ?? 0);
+
+      // Reset config in UI to backend defaults
+      setInSeason(!!row.in_season);
+      setTrainingDays(
+        parseWeekdayList(
+          row.training_days ?? null,
+          ["mon", "wed", "fri"]
+        )
+      );
+      setGameDays(parseWeekdayList(row.game_days ?? null, []));
+      setSessionsPerWeek(row.sessions_per_week ?? 3);
+      setSessionMinutes(row.session_minutes ?? 45);
+      setHasSpaceToHitBalls(
+        row.has_space_to_hit_balls ?? true
+      );
 
       setSettingsExpanded(true);
       setScheduleGenerated(false);
@@ -753,6 +818,62 @@ const MyProgramPage: React.FC<MyProgramPageProps> = ({
     }
   };
 
+  const handleSaveProgramSettings = async () => {
+    if (!targetPlayerId) return;
+
+    try {
+      setSavingProgramSettings(true);
+      setProgramStateError(null);
+
+      const row = await updatePlayerProgramSettings(targetPlayerId, {
+        inSeason,
+        trainingDays,
+        gameDays,
+        sessionsPerWeek,
+        sessionMinutes,
+        hasSpaceToHitBalls,
+        programStartDate: startDate
+      });
+
+      setApiProgramState(row);
+      setTotalSessionsCompleted(row.total_sessions_completed ?? 0);
+
+      if (row.program_start_date) {
+        setStartDate(row.program_start_date);
+      }
+
+      // Re-sync config in case backend normalized anything
+      setInSeason(!!row.in_season);
+      setTrainingDays(
+        parseWeekdayList(
+          row.training_days ?? null,
+          ["mon", "wed", "fri"]
+        )
+      );
+      setGameDays(parseWeekdayList(row.game_days ?? null, []));
+      setSessionsPerWeek(row.sessions_per_week ?? sessionsPerWeek);
+      setSessionMinutes(row.session_minutes ?? sessionMinutes);
+      setHasSpaceToHitBalls(
+        row.has_space_to_hit_balls ?? hasSpaceToHitBalls
+      );
+
+      setScheduleGenerated(true);
+      setSettingsExpanded(false);
+
+      const d = parseIsoLocal(
+        row.program_start_date ?? startDate
+      );
+      setCalendarMonth(getMonthStart(d));
+    } catch (err: any) {
+      setProgramStateError(
+        err?.message ?? "Failed to save program settings"
+      );
+    } finally {
+      setSavingProgramSettings(false);
+    }
+  };
+
+  
   const handleToggleExtendMaintenance = async () => {
     if (!targetPlayerId) return;
 
@@ -1647,26 +1768,26 @@ const MyProgramPage: React.FC<MyProgramPageProps> = ({
 
             <button
               type="button"
-              onClick={() => {
-                setScheduleGenerated(true);
-                setSettingsExpanded(false);
-                const d = parseIsoLocal(startDate);
-                setCalendarMonth(getMonthStart(d));
-              }}
+              onClick={handleSaveProgramSettings}
+              disabled={savingProgramSettings}
               style={{
                 marginTop: "0.9rem",
                 padding: "0.55rem 1rem",
                 borderRadius: "999px",
                 border: "none",
-                cursor: "pointer",
+                cursor: savingProgramSettings ? "default" : "pointer",
                 background: ACCENT,
                 color: "#0f172a",
                 fontWeight: 600,
-                fontSize: "0.95rem"
+                fontSize: "0.95rem",
+                opacity: savingProgramSettings ? 0.7 : 1
               }}
             >
-              {primarySetupCtaLabel}
+              {savingProgramSettings
+                ? "Saving program..."
+                : primarySetupCtaLabel}
             </button>
+
           </>
         )}
       </div>

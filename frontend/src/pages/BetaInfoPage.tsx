@@ -1,4 +1,3 @@
-//frontend/src/pages/BetaInfoPage.tsx
 import React from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";

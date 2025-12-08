@@ -6,6 +6,15 @@ export interface PlayerProgramStateRow {
   program_start_date: string | null;
   current_phase: PhaseId | null;
   phase_start_date: string | null;
+
+  // Program config stored in player_program_state
+  in_season?: boolean | null;
+  training_days?: string[] | null;
+  game_days?: string[] | null;
+  sessions_per_week?: number | null;
+  session_minutes?: number | null;
+  has_space_to_hit_balls?: boolean | null;
+
   total_overspeed_sessions: number | null;
   overspeed_sessions_in_current_phase: number | null;
   total_counterweight_sessions: number | null;
@@ -22,6 +31,7 @@ export interface PlayerProgramStateRow {
   maintenance_extension_requested?: boolean | null;
   next_ramp_up_requested?: boolean | null;
 }
+
 
 /**
  * Map the raw DB row into the ProgramState shape used by programEngine.
@@ -95,6 +105,50 @@ export async function resetPlayerProgramState(
   const data = await res.json();
   return data as PlayerProgramStateRow;
 }
+
+export interface ProgramSettingsInput {
+  inSeason: boolean;
+  trainingDays: string[]; // Weekday[] as strings
+  gameDays: string[];
+  sessionsPerWeek: number;
+  sessionMinutes: number;
+  hasSpaceToHitBalls: boolean;
+  programStartDate: string;
+}
+
+export async function updatePlayerProgramSettings(
+  playerId: string,
+  settings: ProgramSettingsInput
+): Promise<PlayerProgramStateRow> {
+  const res = await fetch(
+    `/api/players/${playerId}/program-settings`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        in_season: settings.inSeason,
+        training_days: settings.trainingDays,
+        game_days: settings.gameDays,
+        sessions_per_week: settings.sessionsPerWeek,
+        session_minutes: settings.sessionMinutes,
+        has_space_to_hit_balls: settings.hasSpaceToHitBalls,
+        program_start_date: settings.programStartDate
+      })
+    }
+  );
+
+  if (!res.ok) {
+    throw new Error(
+      `Failed to save program settings: ${res.status} ${res.statusText}`
+    );
+  }
+
+  const data = await res.json();
+  return data as PlayerProgramStateRow;
+}
+
 
 // Optional helpers for maintenance toggles – fine to wire later.
 export async function extendMaintenancePhase(

@@ -1,4 +1,3 @@
-//frontend/src/components/BetaBanner.tsx
 import React from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 

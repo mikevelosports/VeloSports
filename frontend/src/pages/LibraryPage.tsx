@@ -63,12 +63,12 @@ const CATEGORY_ORDER: Record<CategoryKey, number> = {
   assessments: 6
 };
 
-const PRIMARY_TEXT = "#e5e7eb";
-const MUTED_TEXT = "#9ca3af";
-const CARD_BORDER = "rgba(148,163,184,0.4)";
-const CARD_BG = "#020617";
+const PRIMARY_TEXT = "var(--velo-text-primary)";
+const MUTED_TEXT = "var(--velo-text-muted)";
+const ACCENT = "var(--velo-accent)";
+const CARD_BG = "var(--velo-bg-card)";
+const CARD_BORDER = "var(--velo-border-card)";
 const CARD_SHADOW = "0 8px 20px rgba(0,0,0,0.35)";
-const ACCENT = "#22c55e";
 
 const normalizeTitle = (title: string) => title.trim().toLowerCase();
 

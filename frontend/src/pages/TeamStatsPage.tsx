@@ -10,13 +10,16 @@ import {
 } from "../api/teams";
 import StatsPage from "./StatsPage";
 
-const PRIMARY_TEXT = "#e5e7eb";
-const MUTED_TEXT = "#9ca3af";
-const CARD_BG = "#020617";
-const CARD_BORDER = "rgba(148,163,184,0.4)";
-const ACCENT = "#22c55e";
+const PRIMARY_TEXT = "var(--velo-text-primary)";
+const MUTED_TEXT = "var(--velo-text-muted)";
+const ACCENT = "#22c55e";               // keep brand green
+
+const CARD_BORDER = "var(--velo-border-card)";
+const CARD_BG = "var(--velo-bg-card)";
+
 const CARD_SHADOW = "0 8px 20px rgba(0,0,0,0.35)";
-const NAV_BG = "#020617";
+
+const NAV_BG = "var(--velo-bg-card-alt)";
 const NAV_BORDER = "rgba(55,65,81,0.9)";
 
 // Keep header + row in lockstep so columns always align
@@ -607,7 +610,7 @@ interface TeamStatsPageProps {
                     border: `1px solid ${
                       isActive ? ACCENT : "rgba(75,85,99,0.8)"
                     }`,
-                    background: isActive ? ACCENT : "#020617",
+                    background: isActive ? ACCENT : CARD_BG,
                     color: isActive ? "#0f172a" : PRIMARY_TEXT,
                     fontSize: "0.75rem",
                     cursor: "pointer"
@@ -655,7 +658,7 @@ interface TeamStatsPageProps {
               marginTop: "0.5rem",
               borderRadius: "10px",
               border: `1px solid ${CARD_BORDER}`,
-              background: "#020617",
+              background: CARD_BG,
               overflow: "hidden"
             }}
           >
@@ -714,7 +717,7 @@ interface TeamStatsPageProps {
                     alignItems: "center",
                     border: "none",
                     borderTop: "1px solid rgba(31,41,55,0.8)",
-                    background: isSelected ? "#064e3b" : "#020617",
+                    background: isSelected ? "#064e3b" : CARD_BG,
                     cursor: "pointer",
                     textAlign: "left"
                   }}
