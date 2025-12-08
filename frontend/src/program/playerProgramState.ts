@@ -1,3 +1,4 @@
+//frontend/src/program/playerProgramState.ts
 // Reuse the same PhaseId union as in programEngine.ts
 export type PhaseId =
   | "RAMP1"

@@ -276,6 +276,146 @@ router.get(
   }
 );
 
+/**
+ * Delete the current user's account.
+ * - Validates Supabase JWT (Authorization: Bearer <access_token>)
+ * - Finds the profile by auth_user_id
+ * - Soft-deletes + scrubs the profile
+ * - Attempts to delete the Supabase Auth user
+ */
+router.delete(
+  "/me",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const authHeader = req.headers.authorization || "";
+      const token = authHeader.startsWith("Bearer ")
+        ? authHeader.slice("Bearer ".length)
+        : null;
+
+      if (!token) {
+        return res.status(401).json({
+          error: "NO_TOKEN",
+          message: "Missing Authorization header"
+        });
+      }
+
+      // 1) Validate the JWT and get the auth user from Supabase
+      const { data: userData, error: userError } =
+        await supabaseAdmin.auth.getUser(token);
+
+      if (userError || !userData?.user) {
+        return res.status(401).json({
+          error: "INVALID_TOKEN",
+          message: "Invalid Supabase token"
+        });
+      }
+
+      const authUserId = userData.user.id;
+
+      // 2) Find the associated profile
+      const {
+        data: profile,
+        error: profileError,
+        status
+      } = await supabaseAdmin
+        .from("profiles")
+        .select("*")
+        .eq("auth_user_id", authUserId)
+        .single();
+
+      if (profileError && status !== 406) {
+        console.error("[DELETE /me] Error fetching profile", profileError);
+        return res.status(500).json({
+          error: "PROFILE_LOOKUP_FAILED",
+          message: profileError.message
+        });
+      }
+
+      const nowIso = new Date().toISOString();
+
+      if (profile) {
+        // 3) Soft‑delete + scrub profile row
+        // ⚠️ Only set nullable fields to null. Leave non-null fields like `role`, `softball`,
+        // `created_at`, etc. as-is to avoid constraint errors.
+        const scrubPayload: Record<string, any> = {
+          email: null,
+          first_name: null,
+          last_name: null,
+          phone: null,
+          address_line1: null,
+          address_line2: null,
+          city: null,
+          state_region: null,
+          postal_code: null,
+          country: null,
+          birthdate: null,
+          height_cm: null,
+          weight_kg: null,
+          playing_level: null,
+          current_team: null,
+          current_team_level: null,
+          current_coach_name: null,
+          current_coach_email: null,
+          jersey_number: null,
+          positions_played: null,
+          years_played: null,
+          batting_avg_last_season: null,
+          photo_url: null,
+          levels_coached: null,
+          current_organization: null,
+          team_logo_url: null,
+          bio: null,
+          // keep role + softball, just mark as incomplete and deleted
+          profile_complete: false,
+          is_deleted: true,
+          deleted_at: nowIso,
+          deleted_reason: "user_request",
+          updated_at: nowIso
+        };
+
+        const { error: updateError } = await supabaseAdmin
+          .from("profiles")
+          .update(scrubPayload)
+          .eq("id", profile.id);
+
+        if (updateError) {
+          console.error("[DELETE /me] Error scrubbing profile", updateError);
+          return res.status(500).json({
+            error: "PROFILE_DELETE_FAILED",
+            message: updateError.message
+          });
+        }
+      }
+
+      // 4) Best‑effort delete of Supabase Auth user
+      try {
+        const { error: deleteError } =
+          await supabaseAdmin.auth.admin.deleteUser(authUserId);
+
+        if (deleteError) {
+          console.error(
+            "[DELETE /me] Failed to delete auth user",
+            authUserId,
+            deleteError
+          );
+          // We STILL return 204 here, because the profile is already scrubbed and
+          // RLS hides it from normal users.
+        }
+      } catch (err) {
+        console.error(
+          "[DELETE /me] Unexpected error deleting auth user",
+          authUserId,
+          err
+        );
+      }
+
+      // No content – the client should sign out & redirect
+      return res.status(204).send();
+    } catch (err) {
+      next(err);
+    }
+  }
+);
 
 /**
  * Get full profile by ID.

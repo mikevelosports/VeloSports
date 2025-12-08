@@ -39,15 +39,20 @@ import {
   type PlayerMedal
 } from "../api/medals";
 
-const PRIMARY_TEXT = "#e5e7eb";
-const MUTED_TEXT = "#9ca3af";
-const ACCENT = "#22c55e";
-const DANGER = "#ef4444";
-const CARD_BORDER = "rgba(148,163,184,0.4)";
-const CARD_BG = "#020617";
+// Use theme.css variables instead of hard-coded dark colors
+const PRIMARY_TEXT = "var(--velo-text-primary)";
+const MUTED_TEXT = "var(--velo-text-muted)";
+const ACCENT = "#22c55e";               // keep brand green
+const DANGER = "#ef4444";               // keep danger red
+
+const CARD_BORDER = "var(--velo-border-card)";
+const CARD_BG = "var(--velo-bg-card)";
+const CARD_BG_ALT = "var(--velo-bg-card-alt)"; // new: lighter inner surfaces
 const CARD_SHADOW = "0 8px 20px rgba(0,0,0,0.35)";
-const NAV_BG = "#020617";
+
+const NAV_BG = "var(--velo-bg-card-alt)";
 const NAV_BORDER = "rgba(55,65,81,0.9)";
+
 
 type MainTab = "dashboard" | "library" | "program" | "stats" | "profile";
 type ShellView = "main" | "start-session" | "team-leaderboard";
@@ -618,7 +623,7 @@ const MedalTile: React.FC<MedalTileProps> = ({ medal, earned, compact }) => {
         width: size,
         borderRadius: "10px",
         border: `1px solid ${tierColor}`,
-        background: "#020617",
+        background: CARD_BG_ALT,
         padding: compact ? "0.25rem" : "0.35rem",
         opacity: earned ? 1 : 0.3,
         display: "flex",
@@ -1805,7 +1810,7 @@ const DashboardPage: React.FC = () => {
                     padding: "0.4rem 0.6rem",
                     borderRadius: "6px",
                     border: `1px solid ${CARD_BORDER}`,
-                    background: "#020617",
+                    background: CARD_BG,
                     color: PRIMARY_TEXT,
                     fontSize: "0.9rem"
                   }}
@@ -1831,7 +1836,7 @@ const DashboardPage: React.FC = () => {
                     padding: "0.4rem 0.6rem",
                     borderRadius: "6px",
                     border: `1px solid ${CARD_BORDER}`,
-                    background: "#020617",
+                    background: CARD_BG,
                     color: PRIMARY_TEXT,
                     fontSize: "0.9rem"
                   }}
@@ -1858,7 +1863,7 @@ const DashboardPage: React.FC = () => {
                     padding: "0.4rem 0.6rem",
                     borderRadius: "6px",
                     border: `1px solid ${CARD_BORDER}`,
-                    background: "#020617",
+                    background: CARD_BG,
                     color: PRIMARY_TEXT,
                     fontSize: "0.9rem"
                   }}
@@ -1991,7 +1996,7 @@ const DashboardPage: React.FC = () => {
                   padding: "0.4rem 0.6rem",
                   borderRadius: "6px",
                   border: `1px solid ${CARD_BORDER}`,
-                  background: "#020617",
+                  background: CARD_BG,
                   color: PRIMARY_TEXT,
                   fontSize: "0.9rem",
                   marginBottom: "0.4rem"
@@ -2448,7 +2453,7 @@ const DashboardPage: React.FC = () => {
                     borderRadius: "10px",
                     border: `1px solid ${CARD_BORDER}`,
                     padding: "0.6rem 0.75rem",
-                    background: "#020617",
+                    background: CARD_BG,
                     display: "flex",
                     justifyContent: "space-between",
                     alignItems: "center",
@@ -2977,7 +2982,7 @@ const DashboardPage: React.FC = () => {
                     borderRadius: "10px",
                     border: `1px solid ${CARD_BORDER}`,
                     padding: "0.6rem 0.75rem",
-                    background: "#020617",
+                    background: CARD_BG,
                     display: "flex",
                     justifyContent: "space-between",
                     alignItems: "center",
@@ -3290,7 +3295,7 @@ const DashboardPage: React.FC = () => {
                       borderRadius: "10px",
                       border: `1px solid ${CARD_BORDER}`,
                       padding: "0.6rem 0.75rem",
-                      background: "#020617",
+                      background: CARD_BG,
                       display: "flex",
                       justifyContent: "space-between",
                       alignItems: "center",
@@ -4057,7 +4062,7 @@ const DashboardPage: React.FC = () => {
                 padding: "0.35rem 0.6rem",
                 borderRadius: "999px",
                 border: `1px solid ${CARD_BORDER}`,
-                background: "#020617",
+                background: CARD_BG,
                 color: PRIMARY_TEXT,
                 fontSize: "0.85rem"
               }}

@@ -48,6 +48,34 @@
   --velo-text-muted: #4b5563;
 }
 
+/* App logo variants */
+.app-logo {
+  height: 32px;
+  display: block;
+}
+
+.app-logo-wrapper {
+  display: flex;
+  align-items: center;
+}
+
+/* On dark theme, use logo designed for dark background */
+:root[data-theme="dark"] .app-logo--for-dark-bg {
+  display: block;
+}
+:root[data-theme="dark"] .app-logo--for-light-bg {
+  display: none;
+}
+
+/* On light theme, use logo designed for light background */
+:root[data-theme="light"] .app-logo--for-dark-bg {
+  display: none;
+}
+:root[data-theme="light"] .app-logo--for-light-bg {
+  display: block;
+}
+
+
 html,
 body,
 #root {

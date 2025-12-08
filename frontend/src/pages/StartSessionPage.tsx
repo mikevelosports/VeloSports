@@ -1,7 +1,10 @@
-// frontend/src/pages/StartSessionPage.tsx
 import React, { useEffect, useMemo, useState } from "react";
 import { useAuth } from "../context/AuthContext";
-import { fetchProtocols, fetchProtocolWithSteps } from "../api/client";
+import {
+  fetchProtocols,
+  fetchProtocolWithSteps,
+  API_BASE_URL
+} from "../api/client";
 import type {
   Protocol,
   ProtocolWithSteps,
@@ -11,13 +14,27 @@ import {
   createSession,
   addSessionEntries,
   completeSessionWithAwards,
-  fetchSessionWithEntries
+  fetchSessionWithEntries,
+  fetchPlayerSessionsForPlayer
 } from "../api/sessions";
 import type {
   Session,
   SessionCompletionResult,
-  SessionWithEntries
+  SessionWithEntries,
+  PlayerSessionSummary
 } from "../api/sessions";
+import {
+  generateProgramSchedule,
+  type ProgramConfig,
+  type ProgramState,
+  type Weekday,
+  type SessionBlock
+} from "../program/programEngine";
+import {
+  fetchPlayerProgramState,
+  mapProgramStateRowToEngineState,
+  type PlayerProgramStateRow
+} from "../api/programState";
 
 // ---- Theme + helpers ----
 
@@ -30,6 +47,8 @@ const ACCENT = "#22c55e";
 const CARD_BG = "#020617";
 const CARD_BORDER = "rgba(148,163,184,0.4)";
 const CARD_SHADOW = "0 8px 20px rgba(0,0,0,0.35)";
+
+const todayIso = () => new Date().toISOString().slice(0, 10);
 
 // Add exit_velo_application to the union
 type CategoryKey =
@@ -50,6 +69,146 @@ const CATEGORY_LABELS: Record<CategoryKey, string> = {
 };
 
 const normalizeTitle = (title: string) => title.trim().toLowerCase();
+
+/**
+ * Helpers shared with MyProgramPage‑style logic so we can compute the
+ * player's next protocol from their custom program.
+ */
+
+const computeAgeFromBirthdate = (
+  birthdateIso: string | null | undefined
+): number | null => {
+  if (!birthdateIso) return null;
+
+  const [yearStr, monthStr, dayStr] = birthdateIso.split("-");
+  if (!yearStr || !monthStr || !dayStr) return null;
+
+  const year = Number(yearStr);
+  const monthIndex = Number(monthStr) - 1;
+  const day = Number(dayStr);
+
+  if (
+    Number.isNaN(year) ||
+    Number.isNaN(monthIndex) ||
+    Number.isNaN(day)
+  ) {
+    return null;
+  }
+
+  const today = new Date();
+  const birthDate = new Date(year, monthIndex, day);
+  if (Number.isNaN(birthDate.getTime())) return null;
+
+  let age = today.getFullYear() - birthDate.getFullYear();
+  const monthDiff = today.getMonth() - birthDate.getMonth();
+  if (
+    monthDiff < 0 ||
+    (monthDiff === 0 && today.getDate() < birthDate.getDate())
+  ) {
+    age -= 1;
+  }
+
+  return age >= 0 ? age : null;
+};
+
+// Heuristic: detect Overspeed sessions from protocol metadata / notes
+const isOverspeedSession = (s: PlayerSessionSummary): boolean => {
+  const anySession: any = s as any;
+
+  const categoryRaw =
+    anySession.protocol_category ??
+    anySession.protocol?.category ??
+    anySession.protocols?.category ??
+    "";
+  const titleRaw =
+    anySession.protocol_title ??
+    anySession.protocol?.title ??
+    anySession.protocols?.title ??
+    "";
+  const notesRaw = s.notes ?? "";
+
+  const category = String(categoryRaw || "").toLowerCase();
+  const title = String(titleRaw || "").toLowerCase();
+  const notes = String(notesRaw || "").toLowerCase();
+
+  if (category.includes("overspeed")) return true;
+  if (title.includes("overspeed")) return true;
+  if (notes.includes("overspeed")) return true;
+
+  return false;
+};
+
+const normalizeProtocolTitleForMatch = (
+  title: string | null | undefined
+): string => (title || "").trim().toLowerCase();
+
+const getSessionProtocolTitle = (s: PlayerSessionSummary): string => {
+  const anySession: any = s as any;
+  return (
+    anySession.protocol_title ??
+    anySession.protocol?.title ??
+    anySession.protocols?.title ??
+    ""
+  );
+};
+
+const isBlockCompletedBySessions = (
+  block: SessionBlock,
+  sessions: PlayerSessionSummary[]
+): boolean => {
+  const target = normalizeProtocolTitleForMatch(block.protocolTitle);
+  if (!target) return false;
+
+  return sessions.some((s) => {
+    const t = normalizeProtocolTitleForMatch(getSessionProtocolTitle(s));
+    return t === target;
+  });
+};
+
+const indexCompletedSessionsByDate = (
+  sessions: PlayerSessionSummary[]
+): Map<string, PlayerSessionSummary[]> => {
+  const map = new Map<string, PlayerSessionSummary[]>();
+  for (const s of sessions) {
+    if (s.status !== "completed") continue;
+    const source =
+      ((s.completed_at as string | null) ??
+        (s.started_at as string | null)) ??
+      null;
+    if (!source) continue;
+    const dateIso = source.slice(0, 10);
+    if (!map.has(dateIso)) {
+      map.set(dateIso, []);
+    }
+    map.get(dateIso)!.push(s);
+  }
+  return map;
+};
+
+const computeCompletedOverspeedDates = (
+  sessions: PlayerSessionSummary[]
+): string[] => {
+  const set = new Set<string>();
+  const today = todayIso();
+
+  for (const s of sessions) {
+    if (s.status !== "completed") continue;
+    if (!isOverspeedSession(s)) continue;
+
+    const source =
+      ((s.completed_at as string | null) ??
+        (s.started_at as string | null)) ??
+      null;
+    if (!source) continue;
+
+    const dateIso = source.slice(0, 10);
+    if (!dateIso || dateIso > today) continue;
+
+    set.add(dateIso);
+  }
+
+  return Array.from(set);
+};
 
 interface ProtocolMedia {
   vimeoId?: string;
@@ -1204,6 +1363,8 @@ const WarmupSessionView: React.FC<SessionViewProps> = ({
   const firstActiveInstructions =
     activeSteps.find((s) => !!s.instructions)?.instructions ?? null;
 
+  const isDynamicWarmup = isDynamic;
+
   return (
     <div>
       <SessionHeader protocol={protocol} />
@@ -1309,11 +1470,11 @@ const WarmupSessionView: React.FC<SessionViewProps> = ({
             const rawTitle = step.title ?? "";
             const drillName = rawTitle.split(" - ")[0]?.trim() || "Drill";
             const repsLabel =
-              isDynamic && rawTitle.toLowerCase().includes("gradual")
+              isDynamicWarmup && rawTitle.toLowerCase().includes("gradual")
                 ? "10"
                 : typeof step.target_reps === "number"
                 ? step.target_reps.toString()
-                : isDynamic
+                : isDynamicWarmup
                 ? "Down and back"
                 : "";
             const showBorder = idx > 0;
@@ -1862,6 +2023,10 @@ const StartSessionPage: React.FC<StartSessionPageProps> = ({
   const [startingSession, setStartingSession] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Full library (all categories) for matching upcoming program blocks
+  const [allProtocols, setAllProtocols] = useState<Protocol[]>([]);
+  const [loadingAllProtocols, setLoadingAllProtocols] = useState(false);
+
   const [activeSession, setActiveSession] = useState<Session | null>(null);
   const [activeProtocol, setActiveProtocol] =
     useState<ProtocolWithSteps | null>(null);
@@ -1878,6 +2043,38 @@ const StartSessionPage: React.FC<StartSessionPageProps> = ({
   const [autoLaunchedFromProgram, setAutoLaunchedFromProgram] =
     useState(false);
 
+  // Program "Up next" state
+  const [programStateRow, setProgramStateRow] =
+    useState<PlayerProgramStateRow | null>(null);
+  const [programStateLoading, setProgramStateLoading] = useState(false);
+  const [programStateError, setProgramStateError] = useState<string | null>(
+    null
+  );
+
+  const [completedSessionsForProgram, setCompletedSessionsForProgram] =
+    useState<PlayerSessionSummary[]>([]);
+  const [completedSessionsLoading, setCompletedSessionsLoading] =
+    useState(false);
+  const [completedSessionsError, setCompletedSessionsError] = useState<
+    string | null
+  >(null);
+
+  const [profileAge, setProfileAge] = useState<number | null>(null);
+  const [profileAgeLoading, setProfileAgeLoading] = useState(false);
+
+  // Resolve target player (player themselves or parent-selected child)
+  const isPlayer = currentProfile?.role === "player";
+  const isParent = currentProfile?.role === "parent";
+  const isParentStartingForChild = !!(isParent && playerIdOverride);
+
+  const targetPlayerId =
+    isPlayer && currentProfile
+      ? currentProfile.id
+      : isParentStartingForChild
+      ? playerIdOverride!
+      : null;
+
+  // Load protocols for the current category filter (selection UI)
   useEffect(() => {
     const loadProtocols = async () => {
       try {
@@ -1894,59 +2091,137 @@ const StartSessionPage: React.FC<StartSessionPageProps> = ({
       }
     };
 
-    loadProtocols();
+    void loadProtocols();
   }, [category]);
 
-  if (!currentProfile) return null;
+  // Load full protocol library once for program "Up next"
+  useEffect(() => {
+    const loadAll = async () => {
+      try {
+        setLoadingAllProtocols(true);
+        const data = await fetchProtocols(undefined);
+        setAllProtocols(data);
+      } catch (err) {
+        console.error(
+          "[StartSessionPage] Failed to load full protocol list",
+          err
+        );
+      } finally {
+        setLoadingAllProtocols(false);
+      }
+    };
 
-  const isPlayer = currentProfile.role === "player";
-  const isParent = currentProfile.role === "parent";
-  const isParentStartingForChild = isParent && !!playerIdOverride;
+    void loadAll();
+  }, []);
 
-  // This is the profile whose stats should get the session
-  const targetPlayerId = isPlayer
-    ? currentProfile.id
-    : isParentStartingForChild
-    ? playerIdOverride!
-    : null;
+  // Load age from profile (optional, for program engine)
+  useEffect(() => {
+    if (!targetPlayerId) return;
 
-  // Guard: only allow players, or parents with a selected player
-  if (!isPlayer && !isParentStartingForChild) {
-    return (
-      <section
-        style={{
-          padding: "1rem",
-          borderRadius: "12px",
-          border: `1px solid ${CARD_BORDER}`,
-          background: CARD_BG,
-          color: PRIMARY_TEXT
-        }}
-      >
-        <button
-          onClick={onBack}
-          style={{
-            marginBottom: "1rem",
-            padding: "0.4rem 0.8rem",
-            borderRadius: "999px",
-            border: "1px solid #4b5563",
-            background: "transparent",
-            color: PRIMARY_TEXT,
-            cursor: "pointer",
-            fontSize: "0.85rem"
-          }}
-        >
-          ← Back to dashboard
-        </button>
-        <h2 style={{ marginTop: 0 }}>Start Session</h2>
-        <p style={{ color: MUTED_TEXT, fontSize: "0.9rem" }}>
-          Sessions can be started when you are logged in as a{" "}
-          <strong>player</strong>, or as a{" "}
-          <strong>parent with a player selected</strong>. Use the parent
-          player selector on the dashboard to choose a player first.
-        </p>
-      </section>
-    );
-  }
+    let cancelled = false;
+
+    const loadAge = async () => {
+      try {
+        setProfileAgeLoading(true);
+        const res = await fetch(
+          `${API_BASE_URL}/profiles/${targetPlayerId}`
+        );
+        if (!res.ok) {
+          console.error(
+            `[StartSessionPage] Failed to load profile for age (status ${res.status})`
+          );
+          return;
+        }
+
+        const profile = await res.json();
+        if (cancelled) return;
+
+        const birthdate =
+          (profile && (profile.birthdate as string | null | undefined)) ??
+          null;
+        const computedAge = computeAgeFromBirthdate(birthdate);
+
+        if (computedAge != null && Number.isFinite(computedAge)) {
+          setProfileAge(computedAge);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          console.error("[StartSessionPage] Error loading profile age", err);
+        }
+      } finally {
+        if (!cancelled) {
+          setProfileAgeLoading(false);
+        }
+      }
+    };
+
+    void loadAge();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [targetPlayerId]);
+
+  // Load program state + completed sessions whenever we enter recap mode
+  useEffect(() => {
+    if (!targetPlayerId) return;
+    if (mode !== "complete") return;
+
+    let cancelled = false;
+
+    const loadProgramData = async () => {
+      try {
+        setProgramStateLoading(true);
+        setProgramStateError(null);
+
+        const row = await fetchPlayerProgramState(targetPlayerId);
+        if (!cancelled) {
+          setProgramStateRow(row);
+        }
+      } catch (err: any) {
+        if (!cancelled) {
+          setProgramStateError(
+            err?.message ??
+              "Failed to load program settings for next session."
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setProgramStateLoading(false);
+        }
+      }
+
+      try {
+        setCompletedSessionsLoading(true);
+        setCompletedSessionsError(null);
+
+        const sessions = await fetchPlayerSessionsForPlayer(
+          targetPlayerId,
+          { status: "completed", limit: 200 }
+        );
+        if (!cancelled) {
+          setCompletedSessionsForProgram(sessions);
+        }
+      } catch (err: any) {
+        if (!cancelled) {
+          setCompletedSessionsError(
+            err?.message ??
+              "Failed to load previous sessions for next session."
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setCompletedSessionsLoading(false);
+        }
+      }
+    };
+
+    void loadProgramData();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [targetPlayerId, mode]);
 
   // Auto-start when we come from My Program
   useEffect(() => {
@@ -2018,6 +2293,46 @@ const StartSessionPage: React.FC<StartSessionPageProps> = ({
     };
   }, [mode, completionResult]);
 
+  if (!currentProfile) return null;
+
+  // Guard: only allow players, or parents with a selected player
+  if (!isPlayer && !isParentStartingForChild) {
+    return (
+      <section
+        style={{
+          padding: "1rem",
+          borderRadius: "12px",
+          border: `1px solid ${CARD_BORDER}`,
+          background: CARD_BG,
+          color: PRIMARY_TEXT
+        }}
+      >
+        <button
+          onClick={onBack}
+          style={{
+            marginBottom: "1rem",
+            padding: "0.4rem 0.8rem",
+            borderRadius: "999px",
+            border: "1px solid #4b5563",
+            background: "transparent",
+            color: PRIMARY_TEXT,
+            cursor: "pointer",
+            fontSize: "0.85rem"
+          }}
+        >
+          ← Back to dashboard
+        </button>
+        <h2 style={{ marginTop: 0 }}>Start Session</h2>
+        <p style={{ color: MUTED_TEXT, fontSize: "0.9rem" }}>
+          Sessions can be started when you are logged in as a{" "}
+          <strong>player</strong>, or as a{" "}
+          <strong>parent with a player selected</strong>. Use the parent
+          player selector on the dashboard to choose a player first.
+        </p>
+      </section>
+    );
+  }
+
   const handleStartForProtocol = async (protocol: Protocol) => {
     if (!targetPlayerId) {
       setError("No player selected to start this session.");
@@ -2065,6 +2380,18 @@ const StartSessionPage: React.FC<StartSessionPageProps> = ({
         return at.localeCompare(bt);
       }),
     [protocols]
+  );
+
+  const orderedAllProtocols = useMemo(
+    () =>
+      [...allProtocols].sort((a, b) => {
+        const [ac, al, at] = protocolSortKey(a);
+        const [bc, bl, bt] = protocolSortKey(b);
+        if (ac !== bc) return ac - bc;
+        if (al !== bl) return al - bl;
+        return at.localeCompare(bt);
+      }),
+    [allProtocols]
   );
 
   const fullName =
@@ -2159,19 +2486,121 @@ const StartSessionPage: React.FC<StartSessionPageProps> = ({
     const completedProtocolId =
       session?.protocol_id ?? protocol?.id ?? null;
 
-    // "Up next" approximates "other sessions in today's program" with
-    // other protocols from the same category
-    const nextSuggestions =
-      completedProtocolId && orderedProtocols.length > 0
-        ? orderedProtocols
-            .filter(
-              (p) =>
-                p.id !== completedProtocolId &&
-                (!protocol?.category ||
-                  p.category === protocol.category)
-            )
-            .slice(0, 3)
-        : [];
+    const completedProtocolTitleNorm =
+      protocol?.title?.trim().toLowerCase() ?? null;
+
+    const programLoading =
+      programStateLoading ||
+      completedSessionsLoading ||
+      profileAgeLoading ||
+      loadingAllProtocols;
+
+    let programUpNextProtocols: Protocol[] = [];
+    let programUpNextError: string | null =
+      programStateError ?? completedSessionsError ?? null;
+
+    // Compute upcoming protocols from the player's custom program
+    if (
+      !programLoading &&
+      !programUpNextError &&
+      programStateRow &&
+      orderedAllProtocols.length > 0
+    ) {
+      try {
+        const start =
+          programStateRow.program_start_date ?? todayIso();
+
+        const initialProgramState: ProgramState =
+          mapProgramStateRowToEngineState(programStateRow, start);
+
+        const config: ProgramConfig = {
+          age: profileAge ?? 14,
+          inSeason: false,
+          gameDays: [],
+          trainingDays: ["mon", "wed", "fri"] as Weekday[],
+          desiredSessionsPerWeek: 3,
+          desiredSessionMinutes: 45,
+          programStartDate: start,
+          horizonWeeks: 2,
+          hasSpaceToHitBalls: true
+        };
+
+        const completedOverspeedDates = computeCompletedOverspeedDates(
+          completedSessionsForProgram
+        );
+
+        const schedule = generateProgramSchedule(
+          config,
+          initialProgramState,
+          { completedOverspeedDates }
+        );
+
+        const today = todayIso();
+
+        const allDays = schedule.weeks
+          .flatMap((w: any) => w.days)
+          .sort((a: any, b: any) => a.date.localeCompare(b.date));
+
+        const completedByDate = indexCompletedSessionsByDate(
+          completedSessionsForProgram
+        );
+
+        const nextTitleNorms: string[] = [];
+
+        for (const day of allDays) {
+          if (!day.isTrainingDay || !day.blocks?.length) continue;
+          if (day.date < today) continue;
+
+          const completedForDay =
+            completedByDate.get(day.date) ?? [];
+          const remainingBlocks = day.blocks.filter(
+            (b: SessionBlock) =>
+              !isBlockCompletedBySessions(b, completedForDay)
+          );
+
+          for (const block of remainingBlocks) {
+            const norm = normalizeProtocolTitleForMatch(
+              block.protocolTitle
+            );
+            if (!norm) continue;
+            if (
+              completedProtocolTitleNorm &&
+              norm === completedProtocolTitleNorm
+            ) {
+              // Don't immediately suggest the protocol we just ran
+              continue;
+            }
+            if (nextTitleNorms.includes(norm)) continue;
+            nextTitleNorms.push(norm);
+            if (nextTitleNorms.length >= 3) break;
+          }
+
+          if (nextTitleNorms.length >= 3) break;
+        }
+
+        if (nextTitleNorms.length > 0) {
+          const byNorm: Record<string, Protocol> =
+            orderedAllProtocols.reduce(
+              (acc: Record<string, Protocol>, p) => {
+                acc[p.title.trim().toLowerCase()] = p;
+                return acc;
+              },
+              {}
+            );
+
+          programUpNextProtocols = nextTitleNorms
+            .map((norm) => byNorm[norm])
+            .filter((p): p is Protocol => !!p);
+        }
+      } catch (err) {
+        console.error(
+          "[StartSessionPage] Failed to compute program up-next",
+          err
+        );
+        programUpNextError =
+          "We couldn't load your next program session. You can still choose one from My Program.";
+      }
+    }
 
     return (
       <section
@@ -2217,8 +2646,8 @@ const StartSessionPage: React.FC<StartSessionPageProps> = ({
           }}
         >
           Your work for this protocol has been saved. Here&apos;s a quick
-          recap of what you just did, any new medals you unlocked, and a few
-          options for what to run next.
+          recap of what you just did, any new medals you unlocked, and what&apos;s
+          coming up next in your program.
         </p>
 
         {/* Session summary */}
@@ -2541,7 +2970,7 @@ const StartSessionPage: React.FC<StartSessionPageProps> = ({
             )}
         </section>
 
-        {/* Next sessions */}
+        {/* Next sessions – based on this player's custom program */}
         <section
           style={{
             marginBottom: "0.9rem",
@@ -2560,7 +2989,7 @@ const StartSessionPage: React.FC<StartSessionPageProps> = ({
           >
             Up next
           </h3>
-          {nextSuggestions.length === 0 ? (
+          {programLoading ? (
             <p
               style={{
                 margin: 0,
@@ -2568,8 +2997,41 @@ const StartSessionPage: React.FC<StartSessionPageProps> = ({
                 color: MUTED_TEXT
               }}
             >
-              No other protocols to suggest right now. You can always head back
-              to your dashboard or My Program to pick what&apos;s next.
+              Loading your next program session…
+            </p>
+          ) : programUpNextError ? (
+            <p
+              style={{
+                margin: 0,
+                fontSize: "0.85rem",
+                color: "#f87171"
+              }}
+            >
+              {programUpNextError}
+            </p>
+          ) : !programStateRow ? (
+            <p
+              style={{
+                margin: 0,
+                fontSize: "0.85rem",
+                color: MUTED_TEXT
+              }}
+            >
+              You haven&apos;t set up a custom program yet. Head to{" "}
+              <strong>My Program</strong> to create one, and we&apos;ll
+              show your next scheduled session here after you finish.
+            </p>
+          ) : programUpNextProtocols.length === 0 ? (
+            <p
+              style={{
+                margin: 0,
+                fontSize: "0.85rem",
+                color: MUTED_TEXT
+              }}
+            >
+              No upcoming sessions left in your current 2‑week program
+              view. You can adjust your schedule or start a session from
+              My Program.
             </p>
           ) : (
             <div
@@ -2581,7 +3043,7 @@ const StartSessionPage: React.FC<StartSessionPageProps> = ({
                 marginTop: "0.25rem"
               }}
             >
-              {nextSuggestions.map((p) => (
+              {programUpNextProtocols.map((p) => (
                 <div
                   key={p.id}
                   style={{

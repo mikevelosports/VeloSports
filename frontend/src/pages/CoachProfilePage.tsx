@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useAuth } from "../context/AuthContext";
-import { API_BASE_URL } from "../api/client";
+import { API_BASE_URL, apiFetch } from "../api/client";
 import { type LegalDocKey, LEGAL_DOCS } from "../legal/legalText";
 
 const PRIMARY_TEXT = "var(--velo-text-primary)";
@@ -14,8 +14,13 @@ const CARD_SHADOW = "0 8px 20px rgba(0,0,0,0.35)";
 // but defined locally to avoid cross-file imports.
 
 const AppSettingsSection: React.FC = () => {
+  const { signOut } = useAuth();
+
   const [theme, setTheme] = useState<"light" | "dark">("dark");
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -56,14 +61,39 @@ const AppSettingsSection: React.FC = () => {
     });
   };
 
-  const handleDeleteAccount = () => {
-    if (typeof window === "undefined") return;
-    const confirmed = window.confirm(
-      "Account deletion will eventually remove your data from Velo.\n\nFor now, please reach out to support to delete your account. Do you want to open your email client?"
-    );
-    if (confirmed) {
-      window.location.href =
-        "mailto:support@velosports.test?subject=Delete%20my%20account";
+  const handleDeleteClick = () => {
+    setShowDeleteConfirm(true);
+    setDeleteError(null);
+  };
+
+  const handleConfirmDelete = async () => {
+    try {
+      setDeleting(true);
+      setDeleteError(null);
+
+      const res = await apiFetch(`${API_BASE_URL}/me`, {
+        method: "DELETE"
+      });
+
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(
+          text || `Failed to delete account (${res.status})`
+        );
+      }
+
+      // Backend has deleted/scrubbed; log the user out locally
+      await signOut();
+
+      // Hard redirect so we reset all app state
+      window.location.href = "/";
+    } catch (err: any) {
+      console.error("Failed to delete account", err);
+      setDeleteError(
+        err?.message ||
+          "Something went wrong deleting your account. Please try again."
+      );
+      setDeleting(false);
     }
   };
 
@@ -263,40 +293,94 @@ const AppSettingsSection: React.FC = () => {
             borderTop: `1px solid ${CARD_BORDER}`,
             paddingTop: "0.5rem",
             display: "flex",
-            alignItems: "center",
-            gap: "0.5rem",
+            flexDirection: "column",
+            gap: "0.4rem",
             flexWrap: "wrap"
           }}
         >
-          <button
-            type="button"
-            onClick={handleDeleteAccount}
+          <div
             style={{
-              padding: "0.35rem 0.9rem",
-              borderRadius: "999px",
-              border: "1px solid #b91c1c",
-              background: "#7f1d1d",
-              color: "#fee2e2",
-              fontSize: "0.8rem",
-              cursor: "pointer",
-              fontWeight: 600
+              display: "flex",
+              alignItems: "center",
+              gap: "0.5rem",
+              flexWrap: "wrap"
             }}
           >
-            Delete account
-          </button>
-          <span
-            style={{
-              fontSize: "0.75rem",
-              color: MUTED_TEXT
-            }}
-          >
-            Opens an email to support.
-          </span>
+            <button
+              type="button"
+              onClick={handleDeleteClick}
+              style={{
+                padding: "0.35rem 0.9rem",
+                borderRadius: "999px",
+                border: "1px solid #b91c1c",
+                background: "#7f1d1d",
+                color: "#fee2e2",
+                fontSize: "0.8rem",
+                cursor: "pointer",
+                fontWeight: 600
+              }}
+            >
+              Delete account
+            </button>
+          </div>
+
+          {showDeleteConfirm && (
+            <div
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                gap: "0.5rem",
+                alignItems: "center"
+              }}
+            >
+              <span
+                style={{
+                  fontSize: "0.8rem",
+                  color: "#fecaca",
+                  maxWidth: "420px"
+                }}
+              >
+                Please confirm that you really want to delete your account. This
+                cannot be undone.
+              </span>
+              <button
+                type="button"
+                onClick={handleConfirmDelete}
+                disabled={deleting}
+                style={{
+                  padding: "0.35rem 0.9rem",
+                  borderRadius: "999px",
+                  border: "1px solid #b91c1c",
+                  background: deleting ? "#4b5563" : "#ef4444",
+                  color: "#fee2e2",
+                  fontSize: "0.8rem",
+                  cursor: deleting ? "default" : "pointer",
+                  fontWeight: 600,
+                  whiteSpace: "nowrap"
+                }}
+              >
+                {deleting ? "Deleting..." : "Confirm Delete Account"}
+              </button>
+            </div>
+          )}
+
+          {deleteError && (
+            <p
+              style={{
+                margin: 0,
+                fontSize: "0.8rem",
+                color: "#fca5a5"
+              }}
+            >
+              {deleteError}
+            </p>
+          )}
         </div>
       </div>
     </section>
   );
 };
+
 
 const LegalAndPrivacySection: React.FC = () => {
   const [activeDocKey, setActiveDocKey] = useState<LegalDocKey | null>(null);
