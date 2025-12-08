@@ -102,16 +102,24 @@
   display: block;
 }
 
-html,
-body,
-#root {
-  height: 100%;
+html {
+  min-height: 100%;
+  background: var(--velo-bg-page); /* important for mobile overscroll */
 }
 
 body {
   margin: 0;
+  min-height: 100%;
   background: var(--velo-bg-page);
   color: var(--velo-text-primary);
   font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
     sans-serif;
 }
+
+#root {
+  min-height: 100vh;
+  background: var(--velo-bg-page);
+}
+
+
+

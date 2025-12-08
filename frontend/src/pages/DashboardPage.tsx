@@ -625,7 +625,7 @@ const MedalTile: React.FC<MedalTileProps> = ({ medal, earned, compact }) => {
         width: size,
         borderRadius: "10px",
         border: `1px solid ${tierColor}`,
-        background: CARD_BG_ALT,
+        background: CARD_BG,
         padding: compact ? "0.25rem" : "0.35rem",
         opacity: earned ? 1 : 0.3,
         display: "flex",
@@ -4064,7 +4064,7 @@ const DashboardPage: React.FC = () => {
                 padding: "0.35rem 0.6rem",
                 borderRadius: "999px",
                 border: `1px solid ${CARD_BORDER}`,
-                background: CARD_BG,
+                background: CARD_BG_ALT,
                 color: PRIMARY_TEXT,
                 fontSize: "0.85rem"
               }}
