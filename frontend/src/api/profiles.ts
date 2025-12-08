@@ -1,5 +1,5 @@
 // frontend/src/api/profiles.ts
-import { API_BASE_URL } from "./client";
+import { API_BASE_URL, apiFetch } from "./client";
 
 export type Role = "player" | "coach" | "parent" | "admin";
 
@@ -22,7 +22,7 @@ export async function fetchProfiles(role?: Role): Promise<ProfileSummary[]> {
     params.toString() ? `?${params.toString()}` : ""
   }`;
 
-  const response = await fetch(url);
+  const response = await apiFetch(url);
   if (!response.ok) {
     const text = await response.text().catch(() => "");
     throw new Error(
@@ -32,6 +32,7 @@ export async function fetchProfiles(role?: Role): Promise<ProfileSummary[]> {
 
   return response.json();
 }
+
 
 /**
  * Signup (public account creation) – POST /signup
@@ -98,7 +99,7 @@ export interface ParentChildPlayer {
 export async function fetchParentPlayers(
   parentId: string
 ): Promise<ParentChildPlayer[]> {
-  const res = await fetch(`${API_BASE_URL}/parents/${parentId}/players`);
+  const res = await apiFetch(`${API_BASE_URL}/parents/${parentId}/players`);
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     throw new Error(
@@ -107,6 +108,7 @@ export async function fetchParentPlayers(
   }
   return res.json();
 }
+
 
 export interface AddChildPlayerRequest {
   first_name: string;
@@ -119,7 +121,7 @@ export async function addChildPlayerForParent(
   parentId: string,
   body: AddChildPlayerRequest
 ): Promise<ParentChildPlayer> {
-  const res = await fetch(`${API_BASE_URL}/parents/${parentId}/players`, {
+  const res = await apiFetch(`${API_BASE_URL}/parents/${parentId}/players`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body)
@@ -135,12 +137,13 @@ export async function addChildPlayerForParent(
   return res.json();
 }
 
+
 // DELETE /parents/:parentId/players/:playerId
 export async function unlinkChildPlayer(
   parentId: string,
   playerId: string
 ): Promise<void> {
-  const res = await fetch(
+  const res = await apiFetch(
     `${API_BASE_URL}/parents/${parentId}/players/${playerId}`,
     {
       method: "DELETE"
@@ -155,6 +158,7 @@ export async function unlinkChildPlayer(
   }
 }
 
+
 export interface InviteExistingPlayerResponse {
   message: string;
   player?: ParentChildPlayer;
@@ -165,11 +169,14 @@ export async function inviteExistingPlayerToParent(
   parentId: string,
   email: string
 ): Promise<InviteExistingPlayerResponse> {
-  const res = await fetch(`${API_BASE_URL}/parents/${parentId}/invite-player`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email })
-  });
+  const res = await apiFetch(
+    `${API_BASE_URL}/parents/${parentId}/invite-player`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email })
+    }
+  );
 
   if (!res.ok) {
     const text = await res.text().catch(() => "");
@@ -181,6 +188,7 @@ export async function inviteExistingPlayerToParent(
   return res.json();
 }
 
+
 // NEW: full profile fetch by ID (uses GET /profiles/:id, which already returns "*")
 export interface ProfileDetail extends ProfileSummary {
   // include any extra fields you care about; we only need birthdate for now
@@ -188,7 +196,7 @@ export interface ProfileDetail extends ProfileSummary {
 }
 
 export async function fetchProfileById(id: string): Promise<ProfileDetail> {
-  const res = await fetch(`${API_BASE_URL}/profiles/${id}`);
+  const res = await apiFetch(`${API_BASE_URL}/profiles/${id}`);
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     throw new Error(
@@ -197,3 +205,4 @@ export async function fetchProfileById(id: string): Promise<ProfileDetail> {
   }
   return res.json();
 }
+

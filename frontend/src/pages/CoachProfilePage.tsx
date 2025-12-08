@@ -3,11 +3,11 @@ import { useAuth } from "../context/AuthContext";
 import { API_BASE_URL } from "../api/client";
 import { type LegalDocKey, LEGAL_DOCS } from "../legal/legalText";
 
-const PRIMARY_TEXT = "#e5e7eb";
-const MUTED_TEXT = "#9ca3af";
-const ACCENT = "#22c55e";
-const CARD_BG = "#020617";
-const CARD_BORDER = "rgba(148,163,184,0.4)";
+const PRIMARY_TEXT = "var(--velo-text-primary)";
+const MUTED_TEXT = "var(--velo-text-muted)";
+const ACCENT = "var(--velo-accent)";
+const CARD_BG = "var(--velo-bg-card)";
+const CARD_BORDER = "var(--velo-border-card)";
 const CARD_SHADOW = "0 8px 20px rgba(0,0,0,0.35)";
 
 // Reuse the same settings + legal cards as the player page,
@@ -73,9 +73,9 @@ const AppSettingsSection: React.FC = () => {
       padding: "0.3rem 0.8rem",
       borderRadius: "999px",
       border: `1px solid ${
-        isActive ? ACCENT : "rgba(75,85,99,0.8)"
+        isActive ? ACCENT : "rgba(148,163,184,0.8)"
       }`,
-      background: isActive ? ACCENT : "#020617",
+      background: isActive ? ACCENT : "transparent",
       color: isActive ? "#0f172a" : PRIMARY_TEXT,
       fontSize: "0.8rem",
       cursor: "pointer"
@@ -483,10 +483,11 @@ const LegalAndPrivacySection: React.FC = () => {
       ? rawDoc.updatedAt
       : undefined;
 
-  const paragraphs = content
-    .split(/\n{2,}/)
-    .map((chunk: string) => chunk.trim())
-    .filter(Boolean);
+  const paragraphs: string[] = content
+  .split(/\n{2,}/)
+  .map((chunk: string) => chunk.trim())
+  .filter(Boolean);
+
 
   return (
     <section
@@ -570,7 +571,7 @@ const LegalAndPrivacySection: React.FC = () => {
         }}
       >
         {paragraphs.length > 0 ? (
-          paragraphs.map((para, idx) => (
+          paragraphs.map((para: string, idx: number) => (
             <p
               key={idx}
               style={{

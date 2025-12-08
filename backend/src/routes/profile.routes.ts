@@ -215,6 +215,69 @@ router.post(
 );
 
 /**
+ * Get the current user's profile based on Supabase JWT.
+ * Expects Authorization: Bearer <access_token>
+ */
+router.get(
+  "/me",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const authHeader = req.headers.authorization || "";
+      const token = authHeader.startsWith("Bearer ")
+        ? authHeader.slice("Bearer ".length)
+        : null;
+
+      if (!token) {
+        return res.status(401).json({
+          error: "NO_TOKEN",
+          message: "Missing Authorization header"
+        });
+      }
+
+      // Validate the JWT and get the auth user from Supabase
+      const { data: userData, error: userError } =
+        await supabaseAdmin.auth.getUser(token);
+
+      if (userError || !userData?.user) {
+        return res.status(401).json({
+          error: "INVALID_TOKEN",
+          message: "Invalid Supabase token"
+        });
+      }
+
+      const authUserId = userData.user.id;
+
+      // Look up the profile mapped to this auth user
+      const {
+        data: profile,
+        error: profileError,
+        status
+      } = await supabaseAdmin
+        .from("profiles")
+        .select("id, role, email, first_name, last_name, birthdate")
+        .eq("auth_user_id", authUserId)
+        .single();
+
+      if (profileError && status !== 406) {
+        throw profileError;
+      }
+
+      if (!profile) {
+        return res.status(404).json({
+          error: "PROFILE_NOT_FOUND",
+          message: "Profile not found for this auth user"
+        });
+      }
+
+      return res.json(profile);
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+
+/**
  * Get full profile by ID.
  */
 router.get(

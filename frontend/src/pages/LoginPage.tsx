@@ -1,13 +1,14 @@
 // frontend/src/pages/LoginPage.tsx
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
-  fetchProfiles,
   type ProfileSummary,
   type Role,
   signup,
   type SignupRequest
 } from "../api/profiles";
 import { useAuth } from "../context/AuthContext";
+import { supabase } from "../supabaseClient";
+import { API_BASE_URL } from "../api/client";
 
 const ROLE_LABELS: Record<Role, string> = {
   player: "Player",
@@ -59,8 +60,23 @@ const LoginPage: React.FC = () => {
 
   // Login state
   const [loginEmail, setLoginEmail] = useState("");
+  const [loginPassword, setLoginPassword] = useState("");
+  const [loginRemember, setLoginRemember] = useState(false);
   const [loginLoading, setLoginLoading] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
+
+  // Load remembered email (if any)
+  useEffect(() => {
+    try {
+      const stored = window.localStorage.getItem("velo_login_email");
+      if (stored) {
+        setLoginEmail(stored);
+        setLoginRemember(true);
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
 
   const age = signupBirthdate
     ? calculateAgeFromBirthdate(signupBirthdate)
@@ -113,8 +129,26 @@ const LoginPage: React.FC = () => {
 
     try {
       setSignupLoading(true);
+
+      // 1) Create auth user + profile via backend (enforces under-13 rule)
       const result = await signup(body);
-      // Auto-log-in after signup
+
+      // 2) Immediately sign in via Supabase Auth
+      const { data: signInData, error: signInError } =
+        await supabase.auth.signInWithPassword({
+          email,
+          password: signupPassword
+        });
+
+      if (signInError || !signInData.session) {
+        console.error("Supabase sign-in after signup failed", signInError);
+        setSignupError(
+          "Account created, but automatic sign-in failed. Please try signing in."
+        );
+        return;
+      }
+
+      // 3) Use the profile returned by the backend as our current profile
       setCurrentProfile(result.profile as ProfileSummary);
       setSignupSuccess("Account created and you are now signed in.");
     } catch (err: any) {
@@ -133,23 +167,61 @@ const LoginPage: React.FC = () => {
       setLoginError("Please enter your email.");
       return;
     }
+    if (!loginPassword) {
+      setLoginError("Please enter your password.");
+      return;
+    }
 
     try {
       setLoginLoading(true);
-      // Dev-style login: fetch profiles and look up by email
-      const profiles = await fetchProfiles();
-      const profile = profiles.find(
-        (p) => (p.email ?? "").toLowerCase() === email
-      );
 
-      if (!profile) {
+      // 1) Sign in via Supabase Auth
+      const { data: signInData, error: signInError } =
+        await supabase.auth.signInWithPassword({
+          email,
+          password: loginPassword
+        });
+
+      if (signInError || !signInData.session) {
+        setLoginError(signInError?.message ?? "Failed to sign in.");
+        return;
+      }
+
+      const accessToken = signInData.session.access_token;
+
+      // 2) Fetch the profile for this auth user via /api/me
+      const res = await fetch(`${API_BASE_URL}/me`, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`
+        }
+      });
+
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
         setLoginError(
-          "We couldn't find an account with that email. Try creating an account first."
+          `Signed in, but failed to load profile: ${res.status} ${text.slice(
+            0,
+            120
+          )}`
         );
         return;
       }
 
+      const profile = (await res.json()) as ProfileSummary;
       setCurrentProfile(profile);
+
+      // 3) Remember email if requested
+      try {
+        if (loginRemember) {
+          window.localStorage.setItem("velo_login_email", email);
+        } else {
+          window.localStorage.removeItem("velo_login_email");
+        }
+      } catch {
+        // ignore
+      }
+
+      setLoginPassword("");
     } catch (err: any) {
       setLoginError(err?.message ?? "Failed to log in.");
     } finally {
@@ -476,7 +548,8 @@ const LoginPage: React.FC = () => {
               padding: "0.55rem 0.8rem",
               borderRadius: "999px",
               border: "none",
-              background: signupLoading || isUnder13Player ? "#9ca3af" : "#111827",
+              background:
+                signupLoading || isUnder13Player ? "#9ca3af" : "#111827",
               color: "#f9fafb",
               fontWeight: 600,
               cursor:
@@ -488,6 +561,7 @@ const LoginPage: React.FC = () => {
         </form>
       ) : (
         <form onSubmit={handleLoginSubmit}>
+          {/* Email */}
           <div style={{ marginBottom: "0.75rem" }}>
             <label
               style={{
@@ -510,6 +584,54 @@ const LoginPage: React.FC = () => {
                 border: "1px solid #d1d5db"
               }}
             />
+          </div>
+
+          {/* Password */}
+          <div style={{ marginBottom: "0.75rem" }}>
+            <label
+              style={{
+                display: "block",
+                fontSize: "0.8rem",
+                color: "#4b5563",
+                marginBottom: "0.2rem"
+              }}
+            >
+              Password
+            </label>
+            <input
+              type="password"
+              value={loginPassword}
+              onChange={(e) => setLoginPassword(e.target.value)}
+              style={{
+                width: "100%",
+                padding: "0.4rem 0.6rem",
+                borderRadius: "8px",
+                border: "1px solid #d1d5db"
+              }}
+            />
+          </div>
+
+          {/* Remember me */}
+          <div
+            style={{
+              marginBottom: "0.75rem",
+              display: "flex",
+              alignItems: "center",
+              gap: "0.4rem"
+            }}
+          >
+            <input
+              id="remember-me"
+              type="checkbox"
+              checked={loginRemember}
+              onChange={(e) => setLoginRemember(e.target.checked)}
+            />
+            <label
+              htmlFor="remember-me"
+              style={{ fontSize: "0.8rem", color: "#4b5563" }}
+            >
+              Remember my email on this device
+            </label>
           </div>
 
           {loginError && (
@@ -549,9 +671,9 @@ const LoginPage: React.FC = () => {
               lineHeight: 1.4
             }}
           >
-            This sign-in currently uses your email to look up your profile in
-            our development environment. In production this can be upgraded to
-            full password-based authentication.
+            Sign-in now uses secure Supabase Auth. Your password is checked
+            against your Supabase account, and your profile is loaded from the
+            Velo backend.
           </p>
         </form>
       )}

@@ -1,5 +1,6 @@
 import React, { useMemo, useState, useEffect } from "react";
 import { useAuth } from "../context/AuthContext";
+import { API_BASE_URL } from "../api/client";
 import {
   generateProgramSchedule,
   type ProgramConfig,
@@ -71,6 +72,43 @@ const formatDisplayDate = (iso: string | null | undefined): string => {
   const [year, month, day] = parts;
   return `${month}-${day}-${year}`;
 };
+
+const computeAgeFromBirthdate = (
+  birthdateIso: string | null | undefined
+): number | null => {
+  if (!birthdateIso) return null;
+
+  const [yearStr, monthStr, dayStr] = birthdateIso.split("-");
+  if (!yearStr || !monthStr || !dayStr) return null;
+
+  const year = Number(yearStr);
+  const monthIndex = Number(monthStr) - 1; // 0‑based
+  const day = Number(dayStr);
+
+  if (
+    Number.isNaN(year) ||
+    Number.isNaN(monthIndex) ||
+    Number.isNaN(day)
+  ) {
+    return null;
+  }
+
+  const today = new Date();
+  const birthDate = new Date(year, monthIndex, day);
+  if (Number.isNaN(birthDate.getTime())) return null;
+
+  let age = today.getFullYear() - birthDate.getFullYear();
+  const monthDiff = today.getMonth() - birthDate.getMonth();
+  if (
+    monthDiff < 0 ||
+    (monthDiff === 0 && today.getDate() < birthDate.getDate())
+  ) {
+    age -= 1;
+  }
+
+  return age >= 0 ? age : null;
+};
+
 
 // Abbreviation helper for calendar + list views
 const protocolAbbreviation = (title: string): string => {
@@ -391,6 +429,47 @@ const MyProgramPage: React.FC<MyProgramPageProps> = ({
   const [quickCompleteError, setQuickCompleteError] = useState<string | null>(
     null
   );
+
+  // Derive age from the player's birthdate in the profiles table, if available.
+  useEffect(() => {
+    if (!targetPlayerId) return;
+
+    let cancelled = false;
+
+    const loadBirthdateAndSetAge = async () => {
+      try {
+        const res = await fetch(`${API_BASE_URL}/profiles/${targetPlayerId}`);
+        if (!res.ok) {
+          console.error(
+            `[MyProgramPage] Failed to load profile for age (status ${res.status})`
+          );
+          return;
+        }
+
+        const profile = await res.json();
+        if (cancelled) return;
+
+        const birthdate =
+          (profile && (profile.birthdate as string | null | undefined)) ?? null;
+        const computedAge = computeAgeFromBirthdate(birthdate);
+
+        if (computedAge != null && Number.isFinite(computedAge)) {
+          setAge(computedAge);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          console.error("[MyProgramPage] Error loading profile age", err);
+        }
+      }
+    };
+
+    loadBirthdateAndSetAge();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [targetPlayerId]);
+
 
   const completedOverspeedDates = useMemo(() => {
     const set = new Set<string>();

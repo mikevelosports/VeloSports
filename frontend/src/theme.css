@@ -1,0 +1,63 @@
+/* frontend/src/theme.css */
+/* Global light/dark theme for Velo */
+
+:root {
+  /* Default: keep current look = dark */
+  color-scheme: dark;
+
+  /* Brand colors (same in both themes for now) */
+  --velo-accent: #22c55e;
+  --velo-danger: #ef4444;
+
+  /* Surfaces */
+  --velo-bg-page: #020617;
+  --velo-bg-card: #020617;
+  --velo-bg-card-alt: #020617;
+
+  /* Borders */
+  --velo-border-card: rgba(148, 163, 184, 0.4);
+
+  /* Text */
+  --velo-text-primary: #e5e7eb;
+  --velo-text-muted: #9ca3af;
+}
+
+/* Explicit dark theme */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --velo-bg-page: #020617;
+  --velo-bg-card: #020617;
+  --velo-bg-card-alt: #020617;
+  --velo-border-card: rgba(148, 163, 184, 0.4);
+
+  --velo-text-primary: #e5e7eb;
+  --velo-text-muted: #9ca3af;
+}
+
+/* Light theme */
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  --velo-bg-page: #f9fafb;
+  --velo-bg-card: #ffffff;
+  --velo-bg-card-alt: #f3f4f6;
+  --velo-border-card: rgba(148, 163, 184, 0.4);
+
+  --velo-text-primary: #111827;
+  --velo-text-muted: #4b5563;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--velo-bg-page);
+  color: var(--velo-text-primary);
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+}

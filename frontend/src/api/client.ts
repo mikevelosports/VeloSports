@@ -1,4 +1,6 @@
 // frontend/src/api/client.ts
+import { supabase } from "../supabaseClient";
+
 export const API_BASE_URL = "/api";
 
 export interface Protocol {
@@ -35,6 +37,25 @@ export interface ProtocolWithSteps extends Protocol {
   steps: ProtocolStep[];
 }
 
+/**
+ * Wrapper around fetch that automatically attaches the Supabase access token
+ * (if present) as Authorization: Bearer <token>.
+ */
+export async function apiFetch(
+  input: string,
+  init: RequestInit = {}
+): Promise<Response> {
+  const { data } = await supabase.auth.getSession();
+  const accessToken = data.session?.access_token;
+
+  const headers = new Headers(init.headers ?? {});
+  if (accessToken) {
+    headers.set("Authorization", `Bearer ${accessToken}`);
+  }
+
+  return fetch(input, { ...init, headers });
+}
+
 export async function fetchProtocols(category?: string): Promise<Protocol[]> {
   let path = `${API_BASE_URL}/protocols`;
   if (category) {
@@ -43,7 +64,7 @@ export async function fetchProtocols(category?: string): Promise<Protocol[]> {
     path += `?${params.toString()}`;
   }
 
-  const response = await fetch(path);
+  const response = await apiFetch(path);
 
   if (!response.ok) {
     const text = await response.text().catch(() => "");
@@ -59,7 +80,7 @@ export async function fetchProtocolWithSteps(
   id: string
 ): Promise<ProtocolWithSteps> {
   const path = `${API_BASE_URL}/protocols/${id}`;
-  const response = await fetch(path);
+  const response = await apiFetch(path);
 
   if (!response.ok) {
     const text = await response.text().catch(() => "");

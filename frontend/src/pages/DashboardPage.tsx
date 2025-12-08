@@ -883,7 +883,7 @@ function formatDateShort(isoDate: string): string {
 }
 
 const DashboardPage: React.FC = () => {
-  const { currentProfile, setCurrentProfile } = useAuth();
+  const { currentProfile, signOut } = useAuth();
   const [shellView, setShellView] = useState<ShellView>("main");
   const [activeTab, setActiveTab] = useState<MainTab>("dashboard");
 
@@ -1067,10 +1067,17 @@ const DashboardPage: React.FC = () => {
 
   // ---- Medals for whichever player is "in focus" (recent medals card) ----
   useEffect(() => {
+    // If we don't have a target player, clear medals and bail
     if (!targetPlayerIdForDashboard) {
       setDashboardMedals(null);
       setDashboardMedalsError(null);
       setDashboardMedalsAgeGroup(null);
+      return;
+    }
+
+    // Only refresh medals when we're actually looking at the main dashboard
+    if (activeTab !== "dashboard" || shellView !== "main") {
+      // Keep whatever medals we already have; don't refetch off-dashboard
       return;
     }
 
@@ -1086,9 +1093,7 @@ const DashboardPage: React.FC = () => {
         setDashboardMedalsAgeGroup(res.playerAgeGroup ?? null);
       } catch (err: any) {
         if (cancelled) return;
-        setDashboardMedalsError(
-          err?.message ?? "Failed to load medals"
-        );
+        setDashboardMedalsError(err?.message ?? "Failed to load medals");
         setDashboardMedals(null);
       } finally {
         if (!cancelled) {
@@ -1102,7 +1107,8 @@ const DashboardPage: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [targetPlayerIdForDashboard]);
+  }, [targetPlayerIdForDashboard, activeTab, shellView]);
+
 
   // ---- Upcoming session for whichever player is "in focus" ----
   useEffect(() => {
@@ -1342,7 +1348,7 @@ const DashboardPage: React.FC = () => {
   }, [isCoach, currentProfile?.id]);
 
   const handleLogout = () => {
-    setCurrentProfile(null);
+    void signOut();
   };
 
   // When you're inside the Start Session flow, show that full-screen
