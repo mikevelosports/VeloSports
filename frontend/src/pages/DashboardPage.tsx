@@ -32,8 +32,6 @@ import {
   type PlayerProgramStateRow
 } from "../api/programState";
 
-import logoForLightBg from "../assets/velo-logo-light-bg.png";
-import logoForDarkBg from "../assets/velo-logo-dark-bg.png";
 
 
 import {
@@ -3833,27 +3831,16 @@ const DashboardPage: React.FC = () => {
         }}
       >
         <div>
-          {/* Logo + optional “Parent view” tag */}
           <div
             style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "0.75rem",
-              marginBottom: "0.25rem"
+              fontSize: "0.75rem",
+              textTransform: "uppercase",
+              letterSpacing: "0.12em",
+              color: MUTED_TEXT,
+              marginBottom: "0.15rem"
             }}
           >
-            <div className="app-logo-wrapper">
-              <img
-                src={logoForLightBg}
-                alt="Velo Sports"
-                className="app-logo app-logo--for-light-bg"
-              />
-              <img
-                src={logoForDarkBg}
-                alt="Velo Sports"
-                className="app-logo app-logo--for-dark-bg"
-              />
-            </div>
+            Velo Sports
             {isParent && selectedPlayerName && (
               <span style={{ color: MUTED_TEXT }}> • Parent view</span>
             )}

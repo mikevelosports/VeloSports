@@ -12,27 +12,41 @@ import LoginPage from "./pages/LoginPage";
 import DashboardPage from "./pages/DashboardPage";
 import ProtocolDetailsPage from "./pages/ProtocolDetailsPage";
 
+// ⬇️ NEW: imports for the beta components
+import BetaBanner from "./components/BetaBanner";
+import BetaInfoPage from "./pages/BetaInfoPage";
+
 const AppContent: React.FC = () => {
   const { currentProfile } = useAuth();
 
-  // If not logged in, behave exactly like before
-  if (!currentProfile) {
-    return <LoginPage />;
-  }
-
-  // When logged in, we now use routes:
-  // - "/"  -> Dashboard (your existing main app)
-  // - "/library/protocols/:protocolId" -> read-only protocol details
   return (
-    <Routes>
-      <Route path="/" element={<DashboardPage />} />
-      <Route
-        path="/library/protocols/:protocolId"
-        element={<ProtocolDetailsPage />}
-      />
-      {/* Fallback: anything unknown goes back to the dashboard */}
-      <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
+    <>
+      {/* Beta banner shows on all routes (login + app) */}
+      <BetaBanner />
+
+      <Routes>
+        {/* Beta info is always accessible */}
+        <Route path="/beta-info" element={<BetaInfoPage />} />
+
+        {/* If NOT logged in, show login at "/" */}
+        {!currentProfile ? (
+          <>
+            <Route path="/" element={<LoginPage />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </>
+        ) : (
+          <>
+            {/* Logged IN routes */}
+            <Route path="/" element={<DashboardPage />} />
+            <Route
+              path="/library/protocols/:protocolId"
+              element={<ProtocolDetailsPage />}
+            />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </>
+        )}
+      </Routes>
+    </>
   );
 };
 
@@ -45,7 +59,5 @@ const App: React.FC = () => {
     </AuthProvider>
   );
 };
-
-
 
 export default App;
