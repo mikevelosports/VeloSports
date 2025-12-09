@@ -20,6 +20,10 @@ import { API_BASE_URL } from "../api/client";
 import { fetchTeamsForProfile, fetchTeamDetail, leaveTeam } from "../api/teams";
 import type { TeamSummary, TeamDetail, TeamMember } from "../api/teams";
 
+// ⬇️ NEW: app logo assets
+import veloLogoDark from "../assets/velo-logo-dark-bg.png";
+import veloLogoLight from "../assets/velo-logo-light-bg.png";
+
 import {
   generateProgramSchedule,
   type ProgramConfig,
@@ -3823,14 +3827,137 @@ const DashboardPage: React.FC = () => {
       {/* Top header */}
       <header
         style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "flex-start",
-          gap: "1rem",
           marginBottom: "0.75rem"
         }}
       >
-        <div>
+        {/* Row 1: logo centered, role/logout on the right, parent chip on the left */}
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "1fr auto 1fr",
+            alignItems: "center",
+            columnGap: "0.75rem"
+          }}
+        >
+          {/* Left: parent selected player chip (if applicable) */}
+          <div
+            style={{
+              justifySelf: "start",
+              minWidth: 0
+            }}
+          >
+            {isParent && selectedPlayerName && (
+              <div
+                style={{
+                  padding: "0.4rem 0.75rem",
+                  borderRadius: "10px",
+                  border: `1px solid ${CARD_BORDER}`,
+                  background: CARD_BG,
+                  maxWidth: "260px"
+                }}
+              >
+                <div
+                  style={{
+                    fontSize: "0.7rem",
+                    textTransform: "uppercase",
+                    letterSpacing: "0.12em",
+                    color: MUTED_TEXT,
+                    marginBottom: "0.2rem"
+                  }}
+                >
+                  Viewing player
+                </div>
+                <div
+                  style={{
+                    fontSize: "0.9rem",
+                    color: PRIMARY_TEXT,
+                    fontWeight: 600,
+                    marginBottom: selectedPlayerEmail ? "0.1rem" : 0
+                  }}
+                >
+                  {selectedPlayerName}
+                </div>
+                {selectedPlayerEmail && (
+                  <div
+                    style={{
+                      fontSize: "0.8rem",
+                      color: MUTED_TEXT,
+                      wordBreak: "break-all"
+                    }}
+                  >
+                    {selectedPlayerEmail}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Center: logo */}
+          <div
+            className="app-logo-wrapper"
+            style={{
+              justifySelf: "center"
+            }}
+          >
+            <img
+              src={veloLogoDark}
+              alt="Velo Sports"
+              className="app-logo app-logo--for-dark-bg"
+            />
+            <img
+              src={veloLogoLight}
+              alt="Velo Sports"
+              className="app-logo app-logo--for-light-bg"
+            />
+          </div>
+
+          {/* Right: role + logout */}
+          <div
+            style={{
+              justifySelf: "end",
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "flex-end",
+              gap: "0.4rem",
+              minWidth: 0
+            }}
+          >
+            <div
+              style={{
+                padding: "0.3rem 0.75rem",
+                borderRadius: "999px",
+                border: `1px solid ${CARD_BORDER}`,
+                background: CARD_BG,
+                fontSize: "0.75rem",
+                color: MUTED_TEXT
+              }}
+            >
+              Role: <strong>{currentProfile.role}</strong>
+            </div>
+            <button
+              type="button"
+              onClick={handleLogout}
+              style={{
+                padding: "0.3rem 0.8rem",
+                borderRadius: "999px",
+                border: "1px solid #4b5563",
+                background: "transparent",
+                color: PRIMARY_TEXT,
+                fontSize: "0.8rem",
+                cursor: "pointer"
+              }}
+            >
+              Log out
+            </button>
+          </div>
+        </div>
+
+        {/* Row 2: player name + helper text, left-aligned under the logo section */}
+        <div
+          style={{
+            marginTop: "0.5rem"
+          }}
+        >
           <div
             style={{
               fontSize: "0.75rem",
@@ -3840,7 +3967,6 @@ const DashboardPage: React.FC = () => {
               marginBottom: "0.15rem"
             }}
           >
-            Velo Sports
             {isParent && selectedPlayerName && (
               <span style={{ color: MUTED_TEXT }}> • Parent view</span>
             )}
@@ -3849,7 +3975,8 @@ const DashboardPage: React.FC = () => {
             style={{
               margin: 0,
               fontSize: "1.4rem",
-              color: PRIMARY_TEXT
+              color: PRIMARY_TEXT,
+              textAlign: "left"
             }}
           >
             Hi, {displayName}
@@ -3858,11 +3985,12 @@ const DashboardPage: React.FC = () => {
             style={{
               margin: "0.15rem 0 0",
               fontSize: "0.85rem",
-              color: MUTED_TEXT
+              color: MUTED_TEXT,
+              textAlign: "left"
             }}
           >
-            Ready to train? Use the tabs below to move between your
-            dashboard, protocols,{" "}
+            Ready to train? Use the tabs below to move between your dashboard,
+            protocols,{" "}
             {isCoach
               ? "teams, stats,"
               : isParent
@@ -3886,90 +4014,9 @@ const DashboardPage: React.FC = () => {
             )}
           </p>
         </div>
-        <div
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "flex-end",
-            gap: "0.4rem",
-            minWidth: "0"
-          }}
-        >
-          {/* Selected player card for parents */}
-          {isParent && selectedPlayerName && (
-            <div
-              style={{
-                padding: "0.4rem 0.75rem",
-                borderRadius: "10px",
-                border: `1px solid ${CARD_BORDER}`,
-                background: CARD_BG,
-                maxWidth: "260px"
-              }}
-            >
-              <div
-                style={{
-                  fontSize: "0.7rem",
-                  textTransform: "uppercase",
-                  letterSpacing: "0.12em",
-                  color: MUTED_TEXT,
-                  marginBottom: "0.2rem"
-                }}
-              >
-                Viewing player
-              </div>
-              <div
-                style={{
-                  fontSize: "0.9rem",
-                  color: PRIMARY_TEXT,
-                  fontWeight: 600,
-                  marginBottom: selectedPlayerEmail ? "0.1rem" : 0
-                }}
-              >
-                {selectedPlayerName}
-              </div>
-              {selectedPlayerEmail && (
-                <div
-                  style={{
-                    fontSize: "0.8rem",
-                    color: MUTED_TEXT,
-                    wordBreak: "break-all"
-                  }}
-                >
-                  {selectedPlayerEmail}
-                </div>
-              )}
-            </div>
-          )}
-
-          <div
-            style={{
-              padding: "0.3rem 0.75rem",
-              borderRadius: "999px",
-              border: `1px solid ${CARD_BORDER}`,
-              background: CARD_BG,
-              fontSize: "0.75rem",
-              color: MUTED_TEXT
-            }}
-          >
-            Role: <strong>{currentProfile.role}</strong>
-          </div>
-          <button
-            type="button"
-            onClick={handleLogout}
-            style={{
-              padding: "0.3rem 0.8rem",
-              borderRadius: "999px",
-              border: "1px solid #4b5563",
-              background: "transparent",
-              color: PRIMARY_TEXT,
-              fontSize: "0.8rem",
-              cursor: "pointer"
-            }}
-          >
-            Log out
-          </button>
-        </div>
       </header>
+
+
 
       {/* App-style nav tabs */}
       <nav
