@@ -437,8 +437,22 @@ const LibraryPage: React.FC = () => {
         color: PRIMARY_TEXT
       }}
     >
-      <h1 style={{ marginBottom: "0.5rem" }}>Protocol Library</h1>
-      <p style={{ marginBottom: "1rem", color: MUTED_TEXT }}>
+      <h2
+        style={{
+          marginTop: 0,
+          marginBottom: "0.25rem"
+        }}
+      >
+        Protocol Library
+      </h2>
+      <p
+        style={{
+          marginTop: 0,
+          marginBottom: "0.75rem",
+          color: MUTED_TEXT,
+          fontSize: "0.9rem"
+        }}
+      >
         Browse all Velo Sports training content. Use the filters to jump into a
         category, watch the protocol videos, and preview what data you&apos;ll
         collect when you run a session.
