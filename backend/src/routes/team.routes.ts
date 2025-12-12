@@ -831,6 +831,163 @@ router.post(
   }
 );
 
+/**
+ * POST /api/team-invitations/:invitationId/resend
+ *
+ * Body:
+ *  - requesterProfileId (must be coach on this team or owner)
+ *
+ * Resends the invitation email for a pending invite.
+ */
+router.post(
+  "/team-invitations/:invitationId/resend",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { invitationId } = req.params;
+      const { requesterProfileId } = req.body as {
+        requesterProfileId?: string;
+      };
+
+      if (!invitationId) {
+        return res.status(400).json({ error: "invitationId is required" });
+      }
+      if (!requesterProfileId) {
+        return res
+          .status(400)
+          .json({ error: "requesterProfileId is required" });
+      }
+
+      // Load the invitation
+      const { data: invite, error: inviteError } = await supabaseAdmin
+        .from("team_invitations")
+        .select("*")
+        .eq("id", invitationId)
+        .single();
+
+      if (inviteError) throw inviteError;
+      if (!invite) {
+        return res.status(404).json({ error: "Invitation not found" });
+      }
+
+      const i = invite as TeamInvitationRow;
+
+      if (i.status !== "pending") {
+        return res.status(400).json({
+          error: `Invitation is not pending (status: ${i.status})`
+        });
+      }
+
+      if (i.expires_at && new Date(i.expires_at) < new Date()) {
+        return res
+          .status(400)
+          .json({ error: "Invitation has expired" });
+      }
+
+      // Ensure requester is allowed (coach on this team or owner)
+      const team = await loadTeamWithAccessCheck(
+        i.team_id,
+        requesterProfileId
+      );
+
+      const { data: memberRows, error: memberError } = await supabaseAdmin
+        .from("team_members")
+        .select("member_role")
+        .eq("team_id", i.team_id)
+        .eq("profile_id", requesterProfileId)
+        .limit(1);
+
+      if (memberError) throw memberError;
+
+      const isOwner = team.owner_profile_id === requesterProfileId;
+      const isCoachMember =
+        memberRows &&
+        memberRows.length > 0 &&
+        (memberRows[0] as any).member_role === "coach";
+
+      if (!isOwner && !isCoachMember) {
+        return res.status(403).json({
+          error: "Only coaches on this team can resend invitations"
+        });
+      }
+
+      // Build coachName from the requester profile (best-effort)
+      let coachName = "Your coach";
+      try {
+        const { data: coachProfile } = await supabaseAdmin
+          .from("profiles")
+          .select("first_name, last_name, email")
+          .eq("id", requesterProfileId)
+          .single();
+
+        if (coachProfile) {
+          const fullName = `${coachProfile.first_name ?? ""} ${
+            coachProfile.last_name ?? ""
+          }`.trim();
+          coachName = fullName || coachProfile.email || coachName;
+        }
+      } catch (err) {
+        console.warn(
+          "[team-invitations/resend] Unable to load coach profile",
+          err
+        );
+      }
+
+      // Does this email belong to an existing player with an auth account?
+      let hasExistingAuthUser = false;
+      try {
+        const { data: profiles, error: existingError } = await supabaseAdmin
+          .from("profiles")
+          .select("id, auth_user_id, role")
+          .eq("email", i.email);
+
+        if (existingError) {
+          throw existingError;
+        }
+
+        const existingProfile = (profiles ?? []).find(
+          (p: any) => p.auth_user_id
+        );
+        hasExistingAuthUser = !!existingProfile;
+      } catch (err) {
+        console.warn(
+          "[team-invitations/resend] Unable to check existing auth user",
+          err
+        );
+      }
+
+      const inviteTokenParam = encodeURIComponent(i.invite_token);
+      const emailParam = encodeURIComponent(i.email);
+
+      const existingInviteUrl = `${ENV.appBaseUrl}/team-invite/accept?token=${inviteTokenParam}`;
+      const newInviteUrl = `${ENV.appBaseUrl}/signup?email=${emailParam}&teamInviteToken=${inviteTokenParam}`;
+
+      // Fire-and-forget email (same shape as initial send)
+      void sendTeamInviteEmail({
+        kind: hasExistingAuthUser ? "existing" : "new",
+        to: i.email,
+        coachName,
+        teamName: team.name,
+        inviteUrl: hasExistingAuthUser ? existingInviteUrl : newInviteUrl,
+        invitedEmailForNew: i.email
+      });
+
+      return res.json({
+        id: i.id,
+        teamId: i.team_id,
+        email: i.email,
+        firstName: i.first_name,
+        lastName: i.last_name,
+        memberRole: i.member_role,
+        status: i.status,
+        inviteToken: i.invite_token,
+        createdAt: i.created_at,
+        message: "Invitation email resent"
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
 
 /**
  * POST /api/team-invitations/:token/accept

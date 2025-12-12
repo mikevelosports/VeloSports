@@ -236,3 +236,28 @@ export async function leaveTeam(
     throw new Error(message);
   }
 }
+
+
+export async function resendTeamInvitation(
+  invitationId: string,
+  requesterProfileId: string
+): Promise<void> {
+  const res = await fetch(`/api/team-invitations/${invitationId}/resend`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ requesterProfileId })
+  });
+
+  if (!res.ok) {
+    let message = `Failed to resend invitation: ${res.status} ${res.statusText}`;
+    try {
+      const body = await res.json();
+      if (body?.error && typeof body.error === "string") {
+        message = body.error;
+      }
+    } catch {
+      // ignore JSON parse errors
+    }
+    throw new Error(message);
+  }
+}

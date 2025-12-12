@@ -8,7 +8,8 @@ import {
   createTeamInvitation,
   type TeamSummary,
   type TeamDetail,
-  type TeamMemberRole
+  type TeamMemberRole,
+  resendTeamInvitation 
 } from "../api/teams";
 
 const PRIMARY_TEXT = "var(--velo-text-primary)";
@@ -60,6 +61,13 @@ const MyTeamsPage: React.FC<MyTeamsPageProps> = ({ onBack }) => {
   const [inviteRole, setInviteRole] = useState<TeamMemberRole>("player");
   const [inviting, setInviting] = useState(false);
   const [inviteError, setInviteError] = useState<string | null>(null);
+
+  // Resend invite flow
+  const [resendingInviteId, setResendingInviteId] = useState<string | null>(
+    null
+  );
+  const [resendError, setResendError] = useState<string | null>(null);
+  const [resendSuccess, setResendSuccess] = useState<string | null>(null);
 
   useEffect(() => {
     if (!currentProfile || currentProfile.role !== "coach") return;
@@ -218,6 +226,29 @@ const MyTeamsPage: React.FC<MyTeamsPageProps> = ({ onBack }) => {
     }
   };
 
+  const handleResendInvitation = async (invitationId: string) => {
+    if (!currentProfile || !selectedTeam) return;
+
+    try {
+      setResendError(null);
+      setResendSuccess(null);
+      setResendingInviteId(invitationId);
+
+      await resendTeamInvitation(invitationId, currentProfile.id);
+
+      // Optional: reload team detail (not required, but keeps things fresh if you later add "last sent" fields)
+      const detail = await fetchTeamDetail(selectedTeam.id, currentProfile.id);
+      setSelectedTeam(detail);
+
+      setResendSuccess("Invitation email resent.");
+    } catch (err: any) {
+      setResendError(err?.message ?? "Failed to resend invitation");
+    } finally {
+      setResendingInviteId(null);
+    }
+  };
+
+  
   const ownedTeams = useMemo(
     () => teams.filter((t) => t.isOwner),
     [teams]
@@ -986,6 +1017,28 @@ const MyTeamsPage: React.FC<MyTeamsPageProps> = ({ onBack }) => {
                   >
                     Pending invitations
                   </h4>
+                  {resendError && (
+                    <p
+                      style={{
+                        margin: "0.2rem 0",
+                        fontSize: "0.8rem",
+                        color: "#f87171"
+                      }}
+                    >
+                      {resendError}
+                    </p>
+                  )}
+                  {resendSuccess && (
+                    <p
+                      style={{
+                        margin: "0.2rem 0",
+                        fontSize: "0.8rem",
+                        color: "#4ade80"
+                      }}
+                    >
+                      {resendSuccess}
+                    </p>
+                  )}
                   {selectedTeam.pendingInvitations.length === 0 ? (
                     <p
                       style={{
@@ -1048,20 +1101,52 @@ const MyTeamsPage: React.FC<MyTeamsPageProps> = ({ onBack }) => {
                                 {inv.status}
                               </div>
                             </div>
-                            <span
+                            <div
                               style={{
-                                fontSize: "0.7rem",
-                                color: MUTED_TEXT
+                                display: "flex",
+                                alignItems: "center",
+                                gap: "0.4rem"
                               }}
                             >
-                              Sent{" "}
-                              {new Date(
-                                inv.createdAt
-                              ).toLocaleDateString()}
-                            </span>
+                              <span
+                                style={{
+                                  fontSize: "0.7rem",
+                                  color: MUTED_TEXT
+                                }}
+                              >
+                                Sent{" "}
+                                {new Date(
+                                  inv.createdAt
+                                ).toLocaleDateString()}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => handleResendInvitation(inv.id)}
+                                disabled={resendingInviteId === inv.id}
+                                style={{
+                                  fontSize: "0.7rem",
+                                  padding: "0.2rem 0.6rem",
+                                  borderRadius: "999px",
+                                  border: `1px solid ${CARD_BORDER}`,
+                                  background: CARD_BG,
+                                  color: PRIMARY_TEXT,
+                                  cursor:
+                                    resendingInviteId === inv.id
+                                      ? "default"
+                                      : "pointer",
+                                  opacity: resendingInviteId === inv.id ? 0.6 : 1,
+                                  whiteSpace: "nowrap"
+                                }}
+                              >
+                                {resendingInviteId === inv.id
+                                  ? "Resending…"
+                                  : "Resend"}
+                              </button>
+                            </div>
                           </div>
                         );
                       })}
+
                     </div>
                   )}
                 </div>
