@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { supabase } from "../supabaseClient";
+import { API_BASE_URL, apiFetch } from "../api/client";
 
 const PRIMARY_TEXT = "var(--velo-text-primary)";
 const MUTED_TEXT = "var(--velo-text-muted)";
@@ -40,8 +40,6 @@ interface Props {
   defaultCategory?: SupportIssueCategory;
 }
 
-const send-app-email = "contact-support"; // ✅ TODO: replace with your existing Edge Function name
-
 const inputStyle: React.CSSProperties = {
   width: "100%",
   padding: "0.55rem 0.65rem",
@@ -70,7 +68,6 @@ export default function ContactSupportModal({
 
   useEffect(() => {
     if (!open) return;
-    // reset each time it opens
     setCategory(defaultCategory);
     setDetails("");
     setError(null);
@@ -88,60 +85,52 @@ export default function ContactSupportModal({
   }, [open, onClose]);
 
   const handleSubmit = async () => {
+    const trimmed = details.trim();
+    if (trimmed.length < 10) {
+      setError("Please provide a bit more detail (at least 10 characters).");
+      return;
+    }
+
     try {
       setSending(true);
       setError(null);
       setSuccess(null);
 
-      const trimmed = details.trim();
-      if (trimmed.length < 10) {
-        setError("Please provide a bit more detail (at least 10 characters).");
-        setSending(false);
-        return;
-      }
+      // Optional: include extra context in the message body (since backend route
+      // only forwards category/message/source/profileId).
+      const contextLines = [
+        typeof window !== "undefined" ? `URL: ${window.location.href}` : null,
+        typeof navigator !== "undefined" ? `UserAgent: ${navigator.userAgent}` : null
+      ].filter(Boolean);
 
-      const { data: userData, error: userErr } = await supabase.auth.getUser();
-      if (userErr) {
-        // still proceed (best-effort), but note missing auth info
-        console.warn("[ContactSupportModal] auth.getUser error", userErr);
-      }
+      const messageWithContext =
+        contextLines.length > 0
+          ? `${trimmed}\n\n---\n${contextLines.join("\n")}`
+          : trimmed;
 
-      const authUser = userData?.user ?? null;
+      const res = await apiFetch(`${API_BASE_URL}/support/contact`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          category,                // backend accepts string
+          message: messageWithContext,
+          profileId: profile?.id ?? null,
+          source: profile?.role ?? "contact_support_modal"
+        })
+      });
 
-      const payload = {
-        issueCategory: category,
-        details: trimmed,
-
-        // Helpful context for beta debugging:
-        createdAt: new Date().toISOString(),
-        url: typeof window !== "undefined" ? window.location.href : null,
-        userAgent: typeof navigator !== "undefined" ? navigator.userAgent : null,
-
-        // Profile/app context
-        profileId: profile?.id ?? null,
-        profileRole: profile?.role ?? null,
-        profileEmail: profile?.email ?? null,
-        profileName: `${profile?.first_name ?? ""} ${profile?.last_name ?? ""}`.trim() || null,
-
-        // Auth context (if available)
-        authUserId: authUser?.id ?? null,
-        authEmail: authUser?.email ?? null
-      };
-
-      const { error: fnError } = await supabase.functions.invoke(
-        send-app-email,
-        { body: payload }
-      );
-
-      if (fnError) {
-        throw fnError;
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(text || `Failed to send message (${res.status})`);
       }
 
       setSuccess("Support message sent. Thank you — we’ll take a look ASAP.");
-      setSending(false);
+      setDetails("");
     } catch (err: any) {
       console.error("[ContactSupportModal] Failed to send support message", err);
+      // If user isn't logged in, backend will likely return 401:
       setError(err?.message ?? "Failed to send support message.");
+    } finally {
       setSending(false);
     }
   };
