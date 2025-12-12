@@ -2,6 +2,12 @@
 import { Router, Request, Response, NextFunction } from "express";
 import { supabaseAdmin } from "../config/supabaseClient";
 import { awardMedalsForPlayerEvents } from "./medals.routes";
+import { ENV } from "../config/env";
+import {
+  sendParentLinkExistingEmail,
+  sendTestEmail
+} from "../services/emailService";
+
 
 type Role = "player" | "coach" | "parent" | "admin";
 
@@ -791,11 +797,11 @@ router.delete(
 
 /**
  * Parent invites an existing player (with an Auth account) to link.
- * For now this:
- *  - Finds the player by email
- *  - Ensures they are role "player"
- *  - Creates player_parent_links if not already present
- *  - TODO: send an email for confirmation
+ * This will:
+ *  - Find the player by email
+ *  - Ensure they are role "player" and have auth_user_id
+ *  - Create player_parent_links if not already present
+ *  - Send an email letting the player know a parent account is linked
  */
 router.post(
   "/parents/:parentId/invite-player",
@@ -826,6 +832,10 @@ router.post(
           .status(400)
           .json({ error: "Parent not found or role is not 'parent'" });
       }
+
+      const parentName = `${parent.first_name ?? ""} ${
+        parent.last_name ?? ""
+      }`.trim() || "Parent";
 
       // Find player profile by email
       const {
@@ -870,6 +880,8 @@ router.post(
         throw existingError;
       }
 
+      let createdNewLink = false;
+
       if (!existingLinks || existingLinks.length === 0) {
         const { error: linkError } = await supabaseAdmin
           .from("player_parent_links")
@@ -881,16 +893,28 @@ router.post(
         if (linkError) {
           throw linkError;
         }
+        createdNewLink = true;
       }
 
-      // TODO: send real email invite
-      console.log(
-        `[parent-invite] Parent ${parentId} invited player ${player.id} (${player.email})`
-      );
+      const playerName =
+        `${player.first_name ?? ""} ${
+          player.last_name ?? ""
+        }`.trim() || player.email || "Your player profile";
+
+      // Fire-and-forget notification email to the player
+      if (player.email) {
+        void sendParentLinkExistingEmail({
+          to: player.email,
+          parentName,
+          playerName,
+          dashboardUrl: `${ENV.appBaseUrl}/dashboard`
+        });
+      }
 
       return res.json({
-        message:
-          "Invite recorded. In a production environment this would send an email for confirmation.",
+        message: createdNewLink
+          ? "Player linked to your parent account. A notification email was sent to the player."
+          : "Player was already linked to your parent account. A notification email was sent to the player.",
         player
       });
     } catch (err) {
@@ -898,5 +922,6 @@ router.post(
     }
   }
 );
+
 
 export default router;

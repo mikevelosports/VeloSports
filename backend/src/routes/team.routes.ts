@@ -2,6 +2,11 @@
 import { Router, Request, Response, NextFunction } from "express";
 import { randomUUID } from "crypto";
 import { supabaseAdmin } from "../config/supabaseClient";
+import { ENV } from "../config/env";
+import {
+  sendTeamInviteEmail
+} from "../services/emailService";
+
 
 const router = Router();
 
@@ -668,7 +673,7 @@ router.delete(
  *  - memberRole ('player' | 'coach' | 'parent')
  *  - firstName?, lastName?
  *
- * NOTE: This just creates the invite + token. Email sending is a later step.
+ * NOTE: Updated for the email send function
  */
 router.post(
   "/teams/:teamId/invitations",
@@ -698,6 +703,8 @@ router.post(
         });
       }
 
+      const normalizedEmail = email.trim().toLowerCase();
+
       // Ensure requester is a coach on the team
       const team = await loadTeamWithAccessCheck(teamId, requesterProfileId);
 
@@ -718,8 +725,7 @@ router.post(
 
       if (!isOwner && !isCoachMember) {
         return res.status(403).json({
-          error:
-            "Only coaches on this team can send invitations"
+          error: "Only coaches on this team can send invitations"
         });
       }
 
@@ -729,7 +735,7 @@ router.post(
         .from("team_invitations")
         .insert({
           team_id: teamId,
-          email,
+          email: normalizedEmail,
           first_name: firstName ?? null,
           last_name: lastName ?? null,
           member_role: memberRole,
@@ -743,6 +749,70 @@ router.post(
       if (inviteError) throw inviteError;
 
       const i = invite as TeamInvitationRow;
+
+      // Look up requester for coach name
+      let coachName = "Your coach";
+      try {
+        const { data: coachProfile } = await supabaseAdmin
+          .from("profiles")
+          .select("first_name, last_name, email")
+          .eq("id", requesterProfileId)
+          .single();
+
+        if (coachProfile) {
+          const fullName = `${coachProfile.first_name ?? ""} ${
+            coachProfile.last_name ?? ""
+          }`.trim();
+          coachName = fullName || coachProfile.email || coachName;
+        }
+      } catch (err) {
+        console.warn(
+          "[teams] Unable to load coach profile for invite email",
+          err
+        );
+      }
+
+      // Does this email belong to an existing player with an auth account?
+      let hasExistingAuthUser = false;
+      try {
+        const { data: profiles, error: existingError } = await supabaseAdmin
+          .from("profiles")
+          .select("id, auth_user_id, role")
+          .eq("email", normalizedEmail);
+
+        if (existingError) {
+          throw existingError;
+        }
+
+        const existingProfile = (profiles ?? []).find(
+          (p: any) => p.auth_user_id
+        );
+        hasExistingAuthUser = !!existingProfile;
+      } catch (err) {
+        console.warn(
+          "[teams] Unable to check if invited email has existing auth user",
+          err
+        );
+      }
+
+      // Build invite URLs:
+      // - Existing account: direct accept link (they log in, then front-end hits /team-invitations/:token/accept)
+      // - New account: signup page with email + token
+      const inviteTokenParam = encodeURIComponent(i.invite_token);
+      const emailParam = encodeURIComponent(i.email);
+
+      const existingInviteUrl = `${ENV.appBaseUrl}/team-invite/accept?token=${inviteTokenParam}`;
+      const newInviteUrl = `${ENV.appBaseUrl}/signup?email=${emailParam}&teamInviteToken=${inviteTokenParam}`;
+
+      // Fire-and-forget email (errors are logged but won't break the API)
+      void sendTeamInviteEmail({
+        kind: hasExistingAuthUser ? "existing" : "new",
+        to: normalizedEmail,
+        coachName,
+        teamName: team.name,
+        inviteUrl: hasExistingAuthUser ? existingInviteUrl : newInviteUrl,
+        invitedEmailForNew: normalizedEmail
+      });
 
       return res.status(201).json({
         id: i.id,
@@ -760,6 +830,7 @@ router.post(
     }
   }
 );
+
 
 /**
  * POST /api/team-invitations/:token/accept

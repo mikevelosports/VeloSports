@@ -1,3 +1,4 @@
+//frontend/src/pages/CoachProfilePage.tsx
 import React, { useEffect, useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import { API_BASE_URL, apiFetch } from "../api/client";

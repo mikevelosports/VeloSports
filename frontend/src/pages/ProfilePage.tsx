@@ -3,6 +3,7 @@ import { useAuth } from "../context/AuthContext";
 import { API_BASE_URL, apiFetch } from "../api/client";
 import { type LegalDocKey, LEGAL_DOCS } from "../legal/legalText";
 
+
 const PRIMARY_TEXT = "var(--velo-text-primary)";
 const MUTED_TEXT = "var(--velo-text-muted)";
 const ACCENT = "var(--velo-accent)";
