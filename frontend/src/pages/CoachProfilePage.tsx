@@ -11,6 +11,19 @@ const CARD_BG = "var(--velo-bg-card)";
 const CARD_BORDER = "var(--velo-border-card)";
 const CARD_SHADOW = "0 8px 20px rgba(0,0,0,0.35)";
 
+const SUPPORT_CATEGORIES = [
+  "Login/Profile Update",
+  "Email Verification",
+  "My Stats",
+  "My Program",
+  "Protocol Entry",
+  "My Teams",
+  "My Team Stats"
+] as const;
+
+type SupportCategory = (typeof SUPPORT_CATEGORIES)[number];
+
+
 // Reuse the same settings + legal cards as the player page,
 // but defined locally to avoid cross-file imports.
 
@@ -728,6 +741,244 @@ const EMPTY_COACH_FORM: CoachFormState = {
   team_logo_url: ""
 };
 
+interface ContactSupportSectionProps {
+  profileId: string;
+  contextRole: string;
+}
+
+const ContactSupportSection: React.FC<ContactSupportSectionProps> = ({
+  profileId,
+  contextRole
+}) => {
+  const { currentProfile } = useAuth();
+  const [category, setCategory] = useState<SupportCategory>(
+    SUPPORT_CATEGORIES[0]
+  );
+  const [message, setMessage] = useState("");
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+
+  if (!currentProfile) return null;
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setSuccess(null);
+
+    const trimmed = message.trim();
+    if (!trimmed) {
+      setError("Please describe the issue so we can help.");
+      return;
+    }
+
+    try {
+      setSending(true);
+
+      const res = await apiFetch(`${API_BASE_URL}/support/contact`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          category,
+          message: trimmed,
+          profileId,
+          source: contextRole
+        })
+      });
+
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(
+          text || `Failed to send message (${res.status})`
+        );
+      }
+
+      setSuccess("Thanks — your message has been sent to Velo support.");
+      setMessage("");
+    } catch (err: any) {
+      console.error(err);
+      setError(
+        err?.message ||
+          "Something went wrong sending your message. Please try again."
+      );
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const accountEmail = currentProfile.email || "No email on file";
+
+  return (
+    <section
+      style={{
+        marginTop: "0.75rem",
+        borderRadius: "12px",
+        border: `1px solid ${CARD_BORDER}`,
+        background: CARD_BG,
+        boxShadow: CARD_SHADOW,
+        padding: "1rem",
+        color: PRIMARY_TEXT
+      }}
+    >
+      <h3
+        style={{
+          margin: "0 0 0.4rem",
+          fontSize: "1rem"
+        }}
+      >
+        Contact support
+      </h3>
+      <p
+        style={{
+          margin: "0 0 0.5rem",
+          fontSize: "0.85rem",
+          color: MUTED_TEXT
+        }}
+      >
+        Need help with your coach account, teams, or stats? Send a note to
+        the Velo team and we&apos;ll follow up by email.
+      </p>
+      <p
+        style={{
+          margin: "0 0 0.5rem",
+          fontSize: "0.8rem",
+          color: MUTED_TEXT
+        }}
+      >
+        Support will reply to:&nbsp;
+        <span style={{ fontWeight: 600, color: PRIMARY_TEXT }}>
+          {accountEmail}
+        </span>
+      </p>
+      <p
+        style={{
+          margin: "0 0 0.75rem",
+          fontSize: "0.8rem",
+          color: MUTED_TEXT
+        }}
+      >
+        Please include any specific error messages that you are seeing as this
+        will help our dev team track down and fix the bug asap! We will get
+        back to you as soon as possible.
+      </p>
+
+      <form
+        onSubmit={handleSubmit}
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          gap: "0.6rem"
+        }}
+      >
+        <div>
+          <label
+            style={{
+              display: "block",
+              fontSize: "0.8rem",
+              color: MUTED_TEXT,
+              marginBottom: "0.25rem"
+            }}
+          >
+            What is this about?
+          </label>
+          <select
+            value={category}
+            onChange={(e) =>
+              setCategory(e.target.value as SupportCategory)
+            }
+            style={{
+              width: "100%",
+              padding: "0.45rem 0.6rem",
+              borderRadius: "8px",
+              border: `1px solid ${CARD_BORDER}`,
+              background: CARD_BG,
+              color: PRIMARY_TEXT,
+              fontSize: "0.9rem"
+            }}
+          >
+            {SUPPORT_CATEGORIES.map((cat) => (
+              <option key={cat} value={cat}>
+                {cat}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div>
+          <label
+            style={{
+              display: "block",
+              fontSize: "0.8rem",
+              color: MUTED_TEXT,
+              marginBottom: "0.25rem"
+            }}
+          >
+            Describe the issue
+          </label>
+          <textarea
+            value={message}
+            onChange={(e) => setMessage(e.target.value)}
+            rows={3}
+            placeholder="Tell us what you were trying to do, what happened, and any error text you saw."
+            style={{
+              width: "100%",
+              padding: "0.5rem 0.6rem",
+              borderRadius: "8px",
+              border: `1px solid ${CARD_BORDER}`,
+              background: CARD_BG,
+              color: PRIMARY_TEXT,
+              fontSize: "0.9rem",
+              resize: "vertical"
+            }}
+          />
+        </div>
+
+        {error && (
+          <p
+            style={{
+              margin: 0,
+              fontSize: "0.8rem",
+              color: "#f87171"
+            }}
+          >
+            {error}
+          </p>
+        )}
+        {success && (
+          <p
+            style={{
+              margin: 0,
+              fontSize: "0.8rem",
+              color: ACCENT
+            }}
+          >
+            {success}
+          </p>
+        )}
+
+        <button
+          type="submit"
+          disabled={sending || !message.trim()}
+          style={{
+            marginTop: "0.25rem",
+            padding: "0.55rem 1rem",
+            borderRadius: "999px",
+            border: "none",
+            background: sending ? "#6b7280" : ACCENT,
+            color: "#0f172a",
+            fontWeight: 600,
+            fontSize: "0.9rem",
+            cursor: sending ? "default" : "pointer"
+          }}
+        >
+          {sending ? "Sending..." : "Send to Velo support"}
+        </button>
+      </form>
+    </section>
+  );
+};
+
+
 const CoachProfilePage: React.FC = () => {
   const { currentProfile } = useAuth();
 
@@ -962,6 +1213,10 @@ const CoachProfilePage: React.FC = () => {
             details.
           </p>
         </section>
+        <ContactSupportSection
+          profileId={currentProfile.id}
+          contextRole={currentProfile.role}
+        />
         <AppSettingsSection />
         <LegalAndPrivacySection />
       </>
@@ -992,6 +1247,10 @@ const CoachProfilePage: React.FC = () => {
             Loading coach profile...
           </p>
         </section>
+        <ContactSupportSection
+          profileId={currentProfile.id}
+          contextRole={currentProfile.role}
+        />
         <AppSettingsSection />
         <LegalAndPrivacySection />
       </>
@@ -1288,6 +1547,10 @@ const CoachProfilePage: React.FC = () => {
             </button>
           </div>
         </section>
+        <ContactSupportSection
+          profileId={currentProfile.id}
+          contextRole={currentProfile.role}
+        />
         <AppSettingsSection />
         <LegalAndPrivacySection />
       </>
@@ -1784,6 +2047,10 @@ const CoachProfilePage: React.FC = () => {
           </button>
         </form>
       </section>
+      <ContactSupportSection
+        profileId={currentProfile.id}
+        contextRole={currentProfile.role}
+      />
       <AppSettingsSection />
       <LegalAndPrivacySection />
     </>

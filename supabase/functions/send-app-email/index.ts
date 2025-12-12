@@ -23,7 +23,8 @@ type EmailType =
   | "test"
   | "team_invite_existing"
   | "team_invite_new"
-  | "parent_link_existing";
+  | "parent_link_existing"
+  | "support_contact";
 
 interface BasePayload {
   secret: string;
@@ -57,11 +58,24 @@ interface ParentLinkExistingPayload extends BasePayload {
   dashboardUrl: string;
 }
 
+interface SupportContactPayload extends BasePayload {
+  type: "support_contact";
+  fromEmail?: string;
+  fullName?: string;
+  profileId?: string;
+  profileRole?: string;
+  category?: string;
+  message: string;
+  source?: string;
+}
+
+
 type SendAppEmailPayload =
   | TestPayload
   | TeamInviteExistingPayload
   | TeamInviteNewPayload
-  | ParentLinkExistingPayload;
+  | ParentLinkExistingPayload
+  | SupportContactPayload;
 
 // ---- Helpers ----
 
@@ -205,6 +219,77 @@ function buildParentLinkExistingHtml(p: ParentLinkExistingPayload) {
   return { subject, text, html };
 }
 
+function buildSupportContactHtml(p: SupportContactPayload) {
+  const safeCategory = p.category || "Unspecified";
+  const fromEmail = p.fromEmail || "(no email on file)";
+  const fullName = p.fullName || "";
+  const profileId = p.profileId || "";
+  const profileRole = p.profileRole || "";
+  const source = p.source || "profile_page";
+
+  const subject = `[Velo Support] ${safeCategory} issue from ${fromEmail}`;
+  const nameLine = fullName ? `${fullName} <${fromEmail}>` : fromEmail;
+
+  const textLines = [
+    "New support request from the Velo Sports app.",
+    "",
+    `From: ${nameLine}`,
+    `Category: ${safeCategory}`,
+    profileRole ? `Profile role: ${profileRole}` : "",
+    profileId ? `Profile ID: ${profileId}` : "",
+    source ? `Source: ${source}` : "",
+    "",
+    "Message:",
+    p.message
+  ].filter(Boolean);
+
+  const text = textLines.join("\n");
+
+  const html = `
+    <div style="font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; line-height: 1.5; color: #0f172a;">
+      <h2 style="margin-bottom: 0.5rem;">New Velo support request</h2>
+      <p style="margin: 0.35rem 0;"><strong>From:</strong> ${escapeHtml(
+        nameLine
+      )}</p>
+      <p style="margin: 0.2rem 0;"><strong>Category:</strong> ${escapeHtml(
+        safeCategory
+      )}</p>
+      ${
+        profileRole || profileId || source
+          ? `<p style="margin: 0.2rem 0; font-size: 0.9rem; color: #6b7280;">
+              ${profileRole ? `Role: ${escapeHtml(profileRole)}` : ""}
+              ${profileRole && profileId ? " · " : ""}
+              ${profileId ? `Profile ID: ${escapeHtml(profileId)}` : ""}
+              ${(profileRole || profileId) && source ? " · " : ""}
+              ${source ? `Source: ${escapeHtml(source)}` : ""}
+            </p>`
+          : ""
+      }
+      <div style="margin-top: 1rem; padding: 0.75rem 0.9rem; border-radius: 10px; border: 1px solid #e5e7eb; background: #f9fafb;">
+        <div style="font-size: 0.85rem; color: #6b7280; margin-bottom: 0.35rem;">
+          Issue description
+        </div>
+        <pre style="margin: 0; white-space: pre-wrap; font-size: 0.9rem; color: #111827;">${escapeHtml(
+          p.message
+        )}</pre>
+      </div>
+    </div>
+  `;
+
+  return { subject, text, html };
+}
+
+
+function escapeHtml(str: string): string {
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+
 // ---- Main handler ----
 
 serve(async (req) => {
@@ -264,6 +349,7 @@ serve(async (req) => {
     let subject = "Velo Sports";
     let text = "";
     let html = "";
+    let replyTo: string | undefined;
 
     switch (payload.type) {
       case "test": {
@@ -314,6 +400,16 @@ serve(async (req) => {
         break;
       }
 
+      case "support_contact": {
+         const p = payload as SupportContactPayload;
+        const built = buildSupportContactHtml(p);
+        subject = built.subject;
+        text = built.text;
+         html = built.html;
+        replyTo = p.fromEmail;
+        break;
+      }
+
       default:
         return jsonResponse({ error: "Unsupported email type" }, 400);
     }
@@ -323,7 +419,8 @@ serve(async (req) => {
       to: [payload.to],
       subject,
       text,
-      html
+      html,
+      reply_to: replyTo
     });
 
     if (error) {

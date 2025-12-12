@@ -5,7 +5,8 @@ import { awardMedalsForPlayerEvents } from "./medals.routes";
 import { ENV } from "../config/env";
 import {
   sendParentLinkExistingEmail,
-  sendTestEmail
+  sendTestEmail,
+  sendSupportContactEmail  
 } from "../services/emailService";
 
 
@@ -30,6 +31,14 @@ interface SignupBody {
   phone?: string;
   birthdate?: string; // ISO YYYY-MM-DD
 }
+
+interface SupportContactBody {
+  category?: string;
+  message?: string;
+  profileId?: string;
+  source?: string;
+}
+
 
 const UNDER_13_MESSAGE =
   "Account for players under the age of 13 must be created by a parent through a parent account. Have your parent create an account and then create your account from inside the app.";
@@ -62,6 +71,8 @@ const router = Router();
  *  - role must be player/coach/parent
  *  - player accounts < 13 cannot be created directly
  */
+// backend/src/routes/profile.routes.ts
+
 router.post(
   "/signup",
   async (
@@ -109,21 +120,33 @@ router.post(
         }
       }
 
-      // 1) Create Supabase Auth user
-      const { data: createUserData, error: createUserError } =
-        await supabaseAdmin.auth.admin.createUser({
+      // 🔁 NEW: use auth.signUp instead of auth.admin.createUser
+      // This will send a confirmation email if "Confirm email" is enabled
+      const { data: signUpData, error: signUpError } =
+        await supabaseAdmin.auth.signUp({
           email,
           password,
-          email_confirm: true
+          options: {
+            // extra metadata if you ever want triggers to use it
+            data: {
+              role,
+              first_name: firstName,
+              last_name: lastName,
+              phone,
+              birthdate: birthdateIso
+            },
+            // Where Supabase should redirect after the confirmation link is clicked
+            emailRedirectTo: `${ENV.appBaseUrl}/login`
+          }
         });
 
-      if (createUserError || !createUserData?.user) {
-        throw createUserError ?? new Error("Failed to create auth user");
+      if (signUpError || !signUpData?.user) {
+        throw signUpError ?? new Error("Failed to create auth user");
       }
 
-      const authUser = createUserData.user;
+      const authUser = signUpData.user;
 
-      // 2) Insert into profiles
+      // 2) Insert into profiles (same as before)
       const { data: profile, error: profileError } = await supabaseAdmin
         .from("profiles")
         .insert({
@@ -151,6 +174,7 @@ router.post(
     }
   }
 );
+
 
 /**
  * Admin helper: create a new auth user + profile.
@@ -582,6 +606,111 @@ router.get(
       }
 
       res.json(data ?? []);
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+
+router.post(
+  "/support/contact",
+  async (
+    req: Request<unknown, unknown, SupportContactBody>,
+    res: Response,
+    next: NextFunction
+  ) => {
+    try {
+      const authHeader = req.headers.authorization || "";
+      const token = authHeader.startsWith("Bearer ")
+        ? authHeader.slice("Bearer ".length)
+        : null;
+
+      if (!token) {
+        return res.status(401).json({
+          error: "NO_TOKEN",
+          message: "Missing Authorization header"
+        });
+      }
+
+      const { data: userData, error: userError } =
+        await supabaseAdmin.auth.getUser(token);
+
+      if (userError || !userData?.user) {
+        return res.status(401).json({
+          error: "INVALID_TOKEN",
+          message: "Invalid Supabase token"
+        });
+      }
+
+      const authUser = userData.user;
+      const { category, message, profileId, source } = req.body;
+
+      if (!message || typeof message !== "string" || message.trim().length < 5) {
+        return res.status(400).json({
+          error: "MESSAGE_REQUIRED",
+          message:
+            "Please provide a short description of the issue so we can help."
+        });
+      }
+
+      const trimmedCategory =
+        typeof category === "string" && category.trim()
+          ? category.trim()
+          : "Unspecified";
+
+      // Try to look up the profile the message is about
+      let profileRow: any = null;
+
+      if (profileId) {
+        const { data, error } = await supabaseAdmin
+          .from("profiles")
+          .select("id, role, email, first_name, last_name")
+          .eq("id", profileId)
+          .single();
+
+        if (!error && data) {
+          profileRow = data;
+        }
+      }
+
+      if (!profileRow) {
+        const { data, error } = await supabaseAdmin
+          .from("profiles")
+          .select("id, role, email, first_name, last_name")
+          .eq("auth_user_id", authUser.id)
+          .single();
+
+        if (!error && data) {
+          profileRow = data;
+        }
+      }
+
+      const profileEmail =
+        profileRow?.email ??
+        authUser.email ??
+        (authUser.user_metadata as any)?.email ??
+        null;
+
+      const fullName =
+        `${profileRow?.first_name ?? ""} ${
+          profileRow?.last_name ?? ""
+        }`.trim() ||
+        (authUser.user_metadata as any)?.full_name ||
+        authUser.email ||
+        null;
+
+      await sendSupportContactEmail({
+        fromEmail: profileEmail,
+        fullName,
+        profileId: profileRow?.id ?? profileId ?? null,
+        profileRole: profileRow?.role ?? null,
+        category: trimmedCategory,
+        message: message.trim(),
+        source: source ?? "profile_page"
+      });
+
+      return res.status(200).json({ ok: true });
     } catch (err) {
       next(err);
     }

@@ -119,3 +119,53 @@ export async function sendTestEmail(to: string): Promise<void> {
     throw err;
   }
 }
+
+
+interface SendSupportContactEmailArgs {
+  fromEmail: string | null;
+  fullName: string | null;
+  profileId: string | null;
+  profileRole: string | null;
+  category: string;
+  message: string;
+  source?: string;
+}
+
+export async function sendSupportContactEmail(
+  args: SendSupportContactEmailArgs
+): Promise<void> {
+  try {
+    const { error } = await supabaseAdmin.functions.invoke(
+      "send-app-email",
+      {
+        body: {
+          secret: ENV.appEmailFunctionSecret,
+          type: "support_contact",
+          to: "app@velosports.com",
+          fromEmail: args.fromEmail ?? undefined,
+          fullName: args.fullName ?? undefined,
+          profileId: args.profileId ?? undefined,
+          profileRole: args.profileRole ?? undefined,
+          category: args.category,
+          message: args.message,
+          source: args.source ?? undefined
+        }
+      }
+    );
+
+    if (error) {
+      console.error(
+        "[emailService] Failed to send support contact email",
+        {
+          from: args.fromEmail,
+          error
+        }
+      );
+    }
+  } catch (err) {
+    console.error(
+      "[emailService] Unexpected error while sending support contact email",
+      err
+    );
+  }
+}

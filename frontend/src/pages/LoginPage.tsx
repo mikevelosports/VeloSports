@@ -127,30 +127,20 @@ const LoginPage: React.FC = () => {
       birthdate: signupBirthdate || undefined
     };
 
-    try {
+  try {
       setSignupLoading(true);
 
-      // 1) Create auth user + profile via backend (enforces under-13 rule)
-      const result = await signup(body);
+      // Create auth user + profile via backend.
+      // Backend now calls Supabase auth.signUp, which triggers the confirmation email.
+      await signup(body);
 
-      // 2) Immediately sign in via Supabase Auth
-      const { data: signInData, error: signInError } =
-        await supabase.auth.signInWithPassword({
-          email,
-          password: signupPassword
-        });
+      setSignupSuccess(
+        "Account created. Check your email for a confirmation link, then come back here to sign in."
+      );
 
-      if (signInError || !signInData.session) {
-        console.error("Supabase sign-in after signup failed", signInError);
-        setSignupError(
-          "Account created, but automatic sign-in failed. Please try signing in."
-        );
-        return;
-      }
-
-      // 3) Use the profile returned by the backend as our current profile
-      setCurrentProfile(result.profile as ProfileSummary);
-      setSignupSuccess("Account created and you are now signed in.");
+      // Optional: clear sensitive fields
+      setSignupPassword("");
+      setSignupPasswordConfirm("");
     } catch (err: any) {
       setSignupError(err?.message ?? "Failed to create account.");
     } finally {
@@ -183,9 +173,17 @@ const LoginPage: React.FC = () => {
         });
 
       if (signInError || !signInData.session) {
-        setLoginError(signInError?.message ?? "Failed to sign in.");
+        const raw = signInError?.message ?? "";
+        if (raw.toLowerCase().includes("email not confirmed")) {
+          setLoginError(
+            "Please confirm your email first. Check your inbox for a link from Velo Sports, then try signing in again."
+          );
+        } else {
+          setLoginError(raw || "Failed to sign in.");
+        }
         return;
       }
+
 
       const accessToken = signInData.session.access_token;
 
