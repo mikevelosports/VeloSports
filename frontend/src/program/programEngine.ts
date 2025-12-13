@@ -128,24 +128,6 @@ const weekdayIndexToKey = (idx: number): Weekday => {
   return map[idx] ?? "sun";
 };
 
-const weekdayKeyToIndex = (d: Weekday): number => {
-  switch (d) {
-    case "sun":
-      return 0;
-    case "mon":
-      return 1;
-    case "tue":
-      return 2;
-    case "wed":
-      return 3;
-    case "thu":
-      return 4;
-    case "fri":
-      return 5;
-    case "sat":
-      return 6;
-  }
-};
 
 const parseDate = (iso: string): Date => new Date(`${iso}T00:00:00`);
 const formatDate = (d: Date): string => d.toISOString().slice(0, 10);

@@ -2489,9 +2489,6 @@ const StartSessionPage: React.FC<StartSessionPageProps> = ({
         (s) => valuesByStepId[s.id] && valuesByStepId[s.id].length > 0
       ) ?? [];
 
-    const completedProtocolId =
-      session?.protocol_id ?? protocol?.id ?? null;
-
     const completedProtocolTitleNorm =
       protocol?.title?.trim().toLowerCase() ?? null;
 

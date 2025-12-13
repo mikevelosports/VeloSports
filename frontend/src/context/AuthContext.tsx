@@ -8,6 +8,8 @@ import React, {
 import type { ProfileSummary } from "../api/profiles";
 import { supabase } from "../supabaseClient";
 import { API_BASE_URL } from "../api/client";
+import type { AuthChangeEvent, Session } from "@supabase/supabase-js";
+
 
 interface AuthContextValue {
   currentProfile: ProfileSummary | null;
@@ -77,12 +79,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     // Listen for auth changes (mainly sign-out)
     const {
       data: { subscription }
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (!session) {
-        setCurrentProfileState(null);
-        localStorage.removeItem("velo.currentProfile");
+    } = supabase.auth.onAuthStateChange(
+      (_event: AuthChangeEvent, session: Session | null) => {
+        if (!session) {
+          setCurrentProfileState(null);
+          localStorage.removeItem("velo.currentProfile");
+        }
       }
-    });
+    );
+
 
     return () => {
       cancelled = true;
