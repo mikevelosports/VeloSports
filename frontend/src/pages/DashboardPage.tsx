@@ -17,8 +17,16 @@ import {
   type ParentChildPlayer
 } from "../api/profiles";
 import { API_BASE_URL } from "../api/client";
-import { fetchTeamsForProfile, fetchTeamDetail, leaveTeam } from "../api/teams";
+import {
+  fetchTeamsForProfile,
+  fetchTeamDetail,
+  leaveTeam,
+  fetchPendingTeamInvitations,
+  acceptTeamInvitation,
+  type PendingTeamInvitation
+} from "../api/teams";
 import type { TeamSummary, TeamDetail, TeamMember } from "../api/teams";
+
 
 // ⬇️ NEW: app logo assets
 import veloLogoDark from "../assets/velo-logo-dark-bg.png";
@@ -938,6 +946,13 @@ const DashboardPage: React.FC = () => {
   const [addPlayerSuccess, setAddPlayerSuccess] = useState<string | null>(null);
   const [inviteSuccess, setInviteSuccess] = useState<string | null>(null);
 
+  const [pendingTeamInvites, setPendingTeamInvites] = useState<PendingTeamInvitation[]>([]);
+  const [pendingTeamInvitesLoading, setPendingTeamInvitesLoading] = useState(false);
+  const [pendingTeamInvitesError, setPendingTeamInvitesError] = useState<string | null>(null);
+  const [pendingTeamInvitesSuccess, setPendingTeamInvitesSuccess] = useState<string | null>(null);
+  const [acceptingInviteToken, setAcceptingInviteToken] = useState<string | null>(null);
+
+
   // ---- Player/parent dashboard stats (bat speed gain, sessions) ----
   const [playerStatsForDashboard, setPlayerStatsForDashboard] =
     useState<PlayerStatsSummary | null>(null);
@@ -1191,6 +1206,45 @@ const DashboardPage: React.FC = () => {
       cancelled = true;
     };
   }, [isPlayer, currentProfile?.id]);
+
+  useEffect(() => {
+    if (!currentProfile?.id) return;
+
+    // Only players/parents see invite acceptance UI
+    if (!(isPlayer || isParent)) {
+      setPendingTeamInvites([]);
+      return;
+    }
+
+    // Only fetch while on main dashboard screen (avoid extra calls)
+    if (activeTab !== "dashboard" || shellView !== "main") return;
+
+    let cancelled = false;
+
+    const loadInvites = async () => {
+      try {
+        setPendingTeamInvitesLoading(true);
+        setPendingTeamInvitesError(null);
+
+        const invites = await fetchPendingTeamInvitations(currentProfile.id);
+        if (cancelled) return;
+
+        setPendingTeamInvites(invites);
+      } catch (err: any) {
+        if (cancelled) return;
+        setPendingTeamInvitesError(err?.message ?? "Failed to load team invites");
+      } finally {
+        if (!cancelled) setPendingTeamInvitesLoading(false);
+      }
+    };
+
+    loadInvites();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentProfile?.id, isPlayer, isParent, activeTab, shellView]);
+
 
   // ---- Teams for the currently selected child in parent view ----
   useEffect(() => {
@@ -1539,6 +1593,51 @@ const DashboardPage: React.FC = () => {
     }
   };
 
+  const handleAcceptTeamInvite = async (inviteToken: string) => {
+    if (!currentProfile?.id) return;
+
+    try {
+      setAcceptingInviteToken(inviteToken);
+      setPendingTeamInvitesError(null);
+      setPendingTeamInvitesSuccess(null);
+
+      const resp = await acceptTeamInvitation(inviteToken, currentProfile.id);
+
+      // Remove from local list immediately
+      setPendingTeamInvites((prev) => prev.filter((i) => i.inviteToken !== inviteToken));
+
+      setPendingTeamInvitesSuccess("Invite accepted. Your team list has been updated.");
+
+      // Refresh teams list depending on role
+      if (isPlayer) {
+        const teams = await fetchTeamsForProfile(currentProfile.id);
+        setPlayerTeams(teams);
+      }
+
+      if (isParent) {
+        // Refresh linked players list (in case we created a new child profile)
+        try {
+          const players = await fetchParentPlayers(currentProfile.id);
+          setParentPlayers(players);
+        } catch {
+          // ignore
+        }
+
+        // If the accepted profile is the currently selected child, refresh that child's teams
+        const acceptedProfileId = (resp as any)?.acceptedProfileId as string | undefined;
+        if (acceptedProfileId && selectedPlayerId === acceptedProfileId) {
+          const teams = await fetchTeamsForProfile(acceptedProfileId);
+          setParentChildTeams(teams);
+        }
+      }
+    } catch (err: any) {
+      setPendingTeamInvitesError(err?.message ?? "Failed to accept invite");
+    } finally {
+      setAcceptingInviteToken(null);
+    }
+  };
+
+  
   const handleUnlinkPlayer = async (playerId: string) => {
     if (!isParent) return;
     const confirm = window.confirm(
@@ -2433,6 +2532,90 @@ const DashboardPage: React.FC = () => {
             Teams you&apos;re currently rostered on. View the team
             leaderboard or leave a team.
           </p>
+          {/* Team Invites */}
+          <div
+            style={{
+              borderRadius: "10px",
+              border: `1px solid ${CARD_BORDER}`,
+              background: CARD_BG,
+              padding: "0.75rem",
+              marginBottom: "0.75rem"
+            }}
+          >
+            <div style={{ fontSize: "0.95rem", color: PRIMARY_TEXT, fontWeight: 600 }}>
+              Team Invites
+            </div>
+            <div style={{ fontSize: "0.8rem", color: MUTED_TEXT, marginTop: "0.2rem" }}>
+              Pending invitations to join teams. Accept from here (not from the email link).
+            </div>
+
+            {pendingTeamInvitesLoading ? (
+              <div style={{ marginTop: "0.5rem", fontSize: "0.85rem", color: MUTED_TEXT }}>
+                Loading invites…
+              </div>
+            ) : pendingTeamInvitesError ? (
+              <div style={{ marginTop: "0.5rem", fontSize: "0.85rem", color: "#f87171" }}>
+                {pendingTeamInvitesError}
+              </div>
+            ) : pendingTeamInvites.length === 0 ? (
+              <div style={{ marginTop: "0.5rem", fontSize: "0.85rem", color: MUTED_TEXT }}>
+                No pending team invites.
+              </div>
+            ) : (
+              <div style={{ marginTop: "0.6rem", display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+                {pendingTeamInvites.map((inv) => (
+                  <div
+                    key={inv.id}
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      gap: "0.75rem",
+                      flexWrap: "wrap",
+                      border: `1px solid ${CARD_BORDER}`,
+                      borderRadius: "10px",
+                      padding: "0.55rem 0.7rem",
+                      background: CARD_BG
+                    }}
+                  >
+                    <div>
+                      <div style={{ fontSize: "0.9rem", color: PRIMARY_TEXT, fontWeight: 600 }}>
+                        {inv.teamName}
+                      </div>
+                      <div style={{ fontSize: "0.8rem", color: MUTED_TEXT }}>
+                        Role: <strong>{inv.memberRole}</strong>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      disabled={acceptingInviteToken === inv.inviteToken}
+                      onClick={() => handleAcceptTeamInvite(inv.inviteToken)}
+                      style={{
+                        padding: "0.35rem 0.9rem",
+                        borderRadius: "999px",
+                        border: "none",
+                        cursor: acceptingInviteToken === inv.inviteToken ? "not-allowed" : "pointer",
+                        background: ACCENT,
+                        color: "#0f172a",
+                        fontWeight: 700,
+                        fontSize: "0.85rem",
+                        opacity: acceptingInviteToken === inv.inviteToken ? 0.6 : 1
+                      }}
+                    >
+                      {acceptingInviteToken === inv.inviteToken ? "Accepting..." : "Accept"}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {pendingTeamInvitesSuccess && (
+              <div style={{ marginTop: "0.5rem", fontSize: "0.85rem", color: ACCENT }}>
+                {pendingTeamInvitesSuccess}
+              </div>
+            )}
+          </div>
 
           {playerTeamsLoading ? (
             <p style={{ fontSize: "0.85rem", color: MUTED_TEXT }}>
@@ -2931,6 +3114,90 @@ const DashboardPage: React.FC = () => {
               </button>
             </div>
           </div>
+        </section>
+        {/* Parent: Pending Team Invites for Your Players */}
+        <section
+          style={{
+            marginTop: "1rem",
+            borderRadius: "12px",
+            border: `1px solid ${CARD_BORDER}`,
+            background: CARD_BG,
+            boxShadow: CARD_SHADOW,
+            padding: "1rem"
+          }}
+        >
+          <h2 style={{ margin: "0 0 0.5rem", fontSize: "1.1rem", color: PRIMARY_TEXT }}>
+            Pending Team Invites for Your Players
+          </h2>
+          <p style={{ margin: "0 0 0.75rem", fontSize: "0.9rem", color: MUTED_TEXT }}>
+            Accept invites that were sent to your email for players you manage.
+          </p>
+
+          {pendingTeamInvitesLoading ? (
+            <p style={{ fontSize: "0.85rem", color: MUTED_TEXT }}>Loading invites…</p>
+          ) : pendingTeamInvitesError ? (
+            <p style={{ fontSize: "0.85rem", color: "#f87171" }}>{pendingTeamInvitesError}</p>
+          ) : pendingTeamInvites.length === 0 ? (
+            <p style={{ fontSize: "0.85rem", color: MUTED_TEXT }}>No pending invites.</p>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
+              {pendingTeamInvites.map((inv) => {
+                const childName =
+                  `${inv.firstName ?? ""} ${inv.lastName ?? ""}`.trim() || "your player";
+                return (
+                  <div
+                    key={inv.id}
+                    style={{
+                      borderRadius: "10px",
+                      border: `1px solid ${CARD_BORDER}`,
+                      padding: "0.6rem 0.75rem",
+                      background: CARD_BG,
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      gap: "0.75rem",
+                      flexWrap: "wrap"
+                    }}
+                  >
+                    <div>
+                      <div style={{ fontSize: "0.9rem", color: PRIMARY_TEXT, fontWeight: 600 }}>
+                        Invite for <span style={{ color: ACCENT }}>{childName}</span> to join{" "}
+                        <span style={{ color: PRIMARY_TEXT }}>{inv.teamName}</span>
+                      </div>
+                      <div style={{ fontSize: "0.8rem", color: MUTED_TEXT }}>
+                        Accepting will add the player to the team roster.
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      disabled={acceptingInviteToken === inv.inviteToken}
+                      onClick={() => handleAcceptTeamInvite(inv.inviteToken)}
+                      style={{
+                        padding: "0.35rem 0.9rem",
+                        borderRadius: "999px",
+                        border: "none",
+                        cursor: acceptingInviteToken === inv.inviteToken ? "not-allowed" : "pointer",
+                        background: ACCENT,
+                        color: "#0f172a",
+                        fontWeight: 700,
+                        fontSize: "0.85rem",
+                        opacity: acceptingInviteToken === inv.inviteToken ? 0.6 : 1
+                      }}
+                    >
+                      {acceptingInviteToken === inv.inviteToken ? "Accepting..." : "Accept"}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {pendingTeamInvitesSuccess && (
+            <p style={{ marginTop: "0.6rem", fontSize: "0.85rem", color: ACCENT }}>
+              {pendingTeamInvitesSuccess}
+            </p>
+          )}
         </section>
 
         {/* {childName}'s Teams */}

@@ -5,12 +5,12 @@ import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { Resend } from "npm:resend@3.2.0";
 
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY") ?? "";
-const APP_BASE_URL = Deno.env.get("APP_BASE_URL") ?? "https://app.velosports.com";
-const APP_EMAIL_FUNCTION_SECRET = Deno.env.get("APP_EMAIL_FUNCTION_SECRET") ?? "";
+const APP_BASE_URL =
+  Deno.env.get("APP_BASE_URL") ?? "https://app.velosports.com";
+const APP_EMAIL_FUNCTION_SECRET =
+  Deno.env.get("APP_EMAIL_FUNCTION_SECRET") ?? "";
 
-if (!RESEND_API_KEY) {
-  console.warn("[send-app-email] RESEND_API_KEY is not set");
-}
+if (!RESEND_API_KEY) console.warn("[send-app-email] RESEND_API_KEY is not set");
 if (!APP_EMAIL_FUNCTION_SECRET) {
   console.warn("[send-app-email] APP_EMAIL_FUNCTION_SECRET is not set");
 }
@@ -69,7 +69,6 @@ interface SupportContactPayload extends BasePayload {
   source?: string;
 }
 
-
 type SendAppEmailPayload =
   | TestPayload
   | TeamInviteExistingPayload
@@ -79,13 +78,29 @@ type SendAppEmailPayload =
 
 // ---- Helpers ----
 
+const corsHeaders: Record<string, string> = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization",
+};
+
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
     headers: {
-      "Content-Type": "application/json"
-    }
+      "Content-Type": "application/json",
+      ...corsHeaders,
+    },
   });
+}
+
+function escapeHtml(str: string): string {
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
 }
 
 function buildTeamInviteExistingHtml(p: TeamInviteExistingPayload) {
@@ -97,32 +112,44 @@ function buildTeamInviteExistingHtml(p: TeamInviteExistingPayload) {
   const text = [
     `${safeCoach} has invited you to join "${safeTeam}" in the Velo Sports app.`,
     "",
-    "Click the link below to accept your invite. If you don't already have the app open, you'll be asked to sign in first.",
+    "To accept this invite:",
+    "1) Sign in to your Velo account",
+    "2) Go to My Teams → Team Invites",
+    "3) Click Accept",
     "",
     url,
-    "",
-    "After you accept, you'll see this team in your My Teams list and your coach will be able to monitor your progress."
   ].join("\n");
 
   const html = `
     <div style="font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; line-height: 1.5; color: #0f172a;">
-      <h2 style="margin-bottom: 0.5rem;">Join ${safeTeam} on Velo</h2>
+      <h2 style="margin-bottom: 0.5rem;">Join ${escapeHtml(
+        safeTeam
+      )} on Velo</h2>
       <p>Hi there,</p>
-      <p><strong>${safeCoach}</strong> has invited you to join the team <strong>"${safeTeam}"</strong> in the Velo Sports app.</p>
+      <p><strong>${escapeHtml(
+        safeCoach
+      )}</strong> has invited you to join the team <strong>"${escapeHtml(
+    safeTeam
+  )}"</strong> in the Velo Sports app.</p>
+
       <p style="margin-top: 1rem;">
-        Click the button below to accept your invite. If you&apos;re not signed in yet, we&apos;ll ask you to sign in first.
+        Click the button below to sign in. After signing in, go to
+        <strong>My Teams</strong> → <strong>Team Invites</strong> and click <strong>Accept</strong>.
       </p>
+
       <p style="margin: 1.25rem 0;">
         <a href="${url}" style="display: inline-block; padding: 0.6rem 1.2rem; border-radius: 999px; background: #22c55e; color: #0f172a; text-decoration: none; font-weight: 600;">
-          Accept team invite
+          Sign in to accept the team invite
         </a>
       </p>
+
       <p style="font-size: 0.9rem; color: #6b7280;">
         If the button doesn&apos;t work, copy and paste this link into your browser:<br />
         <span style="word-break: break-all;">${url}</span>
       </p>
+
       <p style="margin-top: 1.5rem; font-size: 0.85rem; color: #6b7280;">
-        After you accept, you&apos;ll see this team in your <strong>My Teams</strong> list and your coach will be able to monitor your progress.
+        After you accept, you&apos;ll see this team in your <strong>My Teams</strong> list.
       </p>
     </div>
   `;
@@ -137,36 +164,51 @@ function buildTeamInviteNewHtml(p: TeamInviteNewPayload) {
   const invitedEmail = p.invitedEmail;
 
   const subject = `${safeCoach} invited you to join ${safeTeam} on Velo`;
+
+  // UPDATED: no auto-accept wording
   const text = [
     `${safeCoach} has invited you to join "${safeTeam}" in the Velo Sports app.`,
     "",
-    "To accept this invite, you'll first create your player account using the email address:",
+    "To accept this invite, you'll first create your account using this email address:",
     invitedEmail,
     "",
-    "Use the link below to start:",
-    "",
+    "Use the link below to get started:",
     url,
     "",
-    "Once you finish creating your account, you'll be automatically added to the team and your coach will be able to monitor your progress."
+    "After you create your account and sign in:",
+    "1) Go to My Teams → Team Invites",
+    "2) Click Accept",
   ].join("\n");
 
   const html = `
     <div style="font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; line-height: 1.5; color: #0f172a;">
-      <h2 style="margin-bottom: 0.5rem;">Create your Velo player account</h2>
+      <h2 style="margin-bottom: 0.5rem;">You&apos;ve been invited to ${escapeHtml(
+        safeTeam
+      )}</h2>
       <p>Hi there,</p>
-      <p><strong>${safeCoach}</strong> has invited you to join the team <strong>"${safeTeam}"</strong> in the Velo Sports app.</p>
+      <p><strong>${escapeHtml(
+        safeCoach
+      )}</strong> has invited you to join the team <strong>"${escapeHtml(
+    safeTeam
+  )}"</strong> in the Velo Sports app.</p>
+
       <p style="margin-top: 1rem;">
-        To accept this invite, you&apos;ll first create your Velo player account using this email address:
+        Create your account using this email address:
       </p>
-      <p style="margin: 0.4rem 0 1rem; font-weight: 600;">${invitedEmail}</p>
+      <p style="margin: 0.4rem 0 1rem; font-weight: 600;">${escapeHtml(
+        invitedEmail
+      )}</p>
+
       <p>
-        Click the button below to get started. After you complete account creation, you&apos;ll be automatically added to the team.
+        After you create your account and sign in, open <strong>My Teams</strong> → <strong>Team Invites</strong> and click <strong>Accept</strong>.
       </p>
+
       <p style="margin: 1.25rem 0;">
         <a href="${url}" style="display: inline-block; padding: 0.6rem 1.2rem; border-radius: 999px; background: #22c55e; color: #0f172a; text-decoration: none; font-weight: 600;">
-          Create account &amp; join team
+          Create account to accept invite
         </a>
       </p>
+
       <p style="font-size: 0.9rem; color: #6b7280;">
         If the button doesn&apos;t work, copy and paste this link into your browser:<br />
         <span style="word-break: break-all;">${url}</span>
@@ -191,7 +233,7 @@ function buildParentLinkExistingHtml(p: ParentLinkExistingPayload) {
     "You can review your account any time here:",
     url,
     "",
-    "If you did not expect this link, please contact Velo support."
+    "If you did not expect this link, please contact Velo support.",
   ].join("\n");
 
   const html = `
@@ -199,8 +241,10 @@ function buildParentLinkExistingHtml(p: ParentLinkExistingPayload) {
       <h2 style="margin-bottom: 0.5rem;">Parent account linked to your profile</h2>
       <p>Hi there,</p>
       <p>
-        <strong>${safeParent}</strong> has linked their <strong>Velo parent account</strong> to
-        <strong>${safePlayer}</strong>.
+        <strong>${escapeHtml(
+          safeParent
+        )}</strong> has linked their <strong>Velo parent account</strong> to
+        <strong>${escapeHtml(safePlayer)}</strong>.
       </p>
       <p style="margin-top: 1rem;">
         This allows them to view training activity, manage sessions, and help monitor progress in the Velo Sports app.
@@ -240,7 +284,7 @@ function buildSupportContactHtml(p: SupportContactPayload) {
     source ? `Source: ${source}` : "",
     "",
     "Message:",
-    p.message
+    p.message,
   ].filter(Boolean);
 
   const text = textLines.join("\n");
@@ -279,29 +323,11 @@ function buildSupportContactHtml(p: SupportContactPayload) {
   return { subject, text, html };
 }
 
-
-function escapeHtml(str: string): string {
-  return String(str)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;");
-}
-
-
 // ---- Main handler ----
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
-    return new Response(null, {
-      status: 204,
-      headers: {
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Methods": "POST, OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type, Authorization"
-      }
-    });
+    return new Response(null, { status: 204, headers: corsHeaders });
   }
 
   if (req.method !== "POST") {
@@ -311,34 +337,23 @@ serve(async (req) => {
   let payload: SendAppEmailPayload;
   try {
     payload = (await req.json()) as SendAppEmailPayload;
-  } catch (_err) {
+  } catch {
     return jsonResponse({ error: "Invalid JSON payload" }, 400);
   }
 
-  // supabase/functions/send-app-email/index.ts
-
-  if (!payload.secret) {
-    console.error("[send-app-email] Missing secret in payload", payload);
+  if (!payload?.secret) {
+    console.error("[send-app-email] Missing secret in payload");
     return jsonResponse({ error: "Missing secret in body" }, 401);
   }
 
   if (!APP_EMAIL_FUNCTION_SECRET) {
     console.error("[send-app-email] APP_EMAIL_FUNCTION_SECRET is empty in env");
+    return jsonResponse({ error: "Server misconfigured" }, 500);
   }
 
   if (payload.secret !== APP_EMAIL_FUNCTION_SECRET) {
-    console.error("[send-app-email] Secret mismatch", {
-      payloadLength: payload.secret.length,
-      envLength: APP_EMAIL_FUNCTION_SECRET.length,
-      payloadPreview: payload.secret.slice(0, 4),
-      envPreview: APP_EMAIL_FUNCTION_SECRET.slice(0, 4)
-    });
+    console.error("[send-app-email] Secret mismatch");
     return jsonResponse({ error: "Secret mismatch" }, 401);
-  }
-
-
-  if (!payload.secret || payload.secret !== APP_EMAIL_FUNCTION_SECRET) {
-    return jsonResponse({ error: "Invalid or missing secret" }, 401);
   }
 
   if (!payload.to) {
@@ -357,7 +372,7 @@ serve(async (req) => {
         text = [
           "This is a test email from the Velo Sports app.",
           "",
-          `APP_BASE_URL: ${APP_BASE_URL}`
+          `APP_BASE_URL: ${APP_BASE_URL}`,
         ].join("\n");
         html = `
           <div style="font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: #0f172a;">
@@ -372,40 +387,35 @@ serve(async (req) => {
       }
 
       case "team_invite_existing": {
-        const { subject: s, text: t, html: h } = buildTeamInviteExistingHtml(
-          payload
-        );
-        subject = s;
-        text = t;
-        html = h;
+        const built = buildTeamInviteExistingHtml(payload);
+        subject = built.subject;
+        text = built.text;
+        html = built.html;
         break;
       }
 
       case "team_invite_new": {
-        const { subject: s, text: t, html: h } = buildTeamInviteNewHtml(
-          payload
-        );
-        subject = s;
-        text = t;
-        html = h;
+        const built = buildTeamInviteNewHtml(payload);
+        subject = built.subject;
+        text = built.text;
+        html = built.html;
         break;
       }
 
       case "parent_link_existing": {
-        const { subject: s, text: t, html: h } =
-          buildParentLinkExistingHtml(payload);
-        subject = s;
-        text = t;
-        html = h;
+        const built = buildParentLinkExistingHtml(payload);
+        subject = built.subject;
+        text = built.text;
+        html = built.html;
         break;
       }
 
       case "support_contact": {
-         const p = payload as SupportContactPayload;
+        const p = payload as SupportContactPayload;
         const built = buildSupportContactHtml(p);
         subject = built.subject;
         text = built.text;
-         html = built.html;
+        html = built.html;
         replyTo = p.fromEmail;
         break;
       }
@@ -420,7 +430,7 @@ serve(async (req) => {
       subject,
       text,
       html,
-      reply_to: replyTo
+      replyTo,
     });
 
     if (error) {

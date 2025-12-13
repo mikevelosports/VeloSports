@@ -116,6 +116,39 @@ export async function updateTeam(input: UpdateTeamInput): Promise<TeamSummary> {
   return (await res.json()) as TeamSummary;
 }
 
+export interface PendingTeamInvitation {
+  id: string;
+  teamId: string;
+  teamName: string;
+  email: string;
+  firstName: string | null;
+  lastName: string | null;
+  memberRole: TeamMemberRole;
+  status: string;
+  inviteToken: string;
+  createdAt: string;
+  expiresAt: string | null;
+}
+
+export async function fetchPendingTeamInvitations(
+  profileId: string
+): Promise<PendingTeamInvitation[]> {
+  const res = await apiFetch(
+    `${API_BASE_URL}/profiles/${profileId}/team-invitations?status=pending`
+  );
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(
+      `Failed to load team invites: ${res.status} ${text.slice(0, 200)}`
+    );
+  }
+
+  return (await res.json()) as PendingTeamInvitation[];
+}
+
+
+
 export async function deleteTeam(
   teamId: string,
   requesterProfileId: string

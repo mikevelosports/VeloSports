@@ -65,19 +65,176 @@ const LoginPage: React.FC = () => {
   const [loginLoading, setLoginLoading] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
 
-  // Load remembered email (if any)
+  type InlineBanner =
+    | { kind: "success" | "info" | "error"; message: string }
+    | null;
+
+  // Banner shown above the login/signup forms for URL-driven flows
+  const [inlineBanner, setInlineBanner] = useState<InlineBanner>(null);
+
+
+  // Load remembered email (if any) — but don't override URL/confirm prefill
   useEffect(() => {
     try {
       const stored = window.localStorage.getItem("velo_login_email");
-      if (stored) {
+      if (stored && !loginEmail) {
         setLoginEmail(stored);
         setLoginRemember(true);
       }
     } catch {
       // ignore
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    const run = async () => {
+      const searchParams = new URLSearchParams(window.location.search);
+
+      const hashRaw = window.location.hash.startsWith("#")
+        ? window.location.hash.slice(1)
+        : "";
+      const hashParams = new URLSearchParams(hashRaw);
+
+      const clearHashPreserveSearch = () => {
+        if (window.location.hash) {
+          const nextUrl = `${window.location.pathname}${window.location.search}`;
+          window.history.replaceState({}, document.title, nextUrl);
+        }
+      };
+
+      // --- 1) Handle explicit mode requests (supports /login?mode=signup) ---
+      const requestedMode = (searchParams.get("mode") || "").toLowerCase();
+      const pathLooksLikeSignup = window.location.pathname
+        .toLowerCase()
+        .endsWith("/signup");
+
+      if (requestedMode === "signup" || pathLooksLikeSignup) {
+        setMode("signup");
+      } else if (requestedMode === "login") {
+        setMode("login");
+      }
+
+      // --- 2) Team invite deep-link support ---
+      const teamInviteToken = searchParams.get("teamInviteToken") || "";
+      const emailFromQuery = (searchParams.get("email") || "").trim();
+
+      if (teamInviteToken) {
+        // If the link says mode=signup, keep them on signup; otherwise go sign-in.
+        const shouldSignup = requestedMode === "signup" || pathLooksLikeSignup;
+        setMode(shouldSignup ? "signup" : "login");
+
+        if (emailFromQuery) {
+          const normalized = emailFromQuery.toLowerCase();
+          setLoginEmail(normalized);
+          setSignupEmail(normalized);
+        }
+
+        setInlineBanner({
+          kind: "info",
+          message:
+            "You have a team invite. Sign in (or create your account) to view and accept it from your dashboard."
+        });
+      }
+
+      // --- 3) Supabase callback error handling (keep existing behavior) ---
+      const supaError =
+        hashParams.get("error") || searchParams.get("error") || "";
+      const supaErrorCode =
+        hashParams.get("error_code") || searchParams.get("error_code") || "";
+      const supaErrorDesc =
+        hashParams.get("error_description") ||
+        searchParams.get("error_description") ||
+        "";
+
+      if (supaError) {
+        setMode("login");
+
+        // Preserve your existing loginError UX; decode description if present
+        const decoded =
+          supaErrorDesc && typeof supaErrorDesc === "string"
+            ? decodeURIComponent(supaErrorDesc.replace(/\+/g, " "))
+            : "";
+
+        setLoginError(
+          decoded ||
+            (supaErrorCode === "otp_expired"
+              ? "Email link is invalid or has expired. Please request a new link or sign in again."
+              : "This link is invalid or has expired. Please sign in again.")
+        );
+
+        setInlineBanner(null);
+        clearHashPreserveSearch();
+        return;
+      }
+
+      // --- 4) Supabase confirm-email success flow (type=signup with tokens) ---
+      const authType =
+        (hashParams.get("type") || searchParams.get("type") || "").toLowerCase();
+
+      const hasAuthTokens =
+        !!hashParams.get("access_token") ||
+        !!hashParams.get("refresh_token") ||
+        !!hashParams.get("token_type") ||
+        !!hashParams.get("expires_in");
+
+      const looksLikeEmailConfirm = authType === "signup";
+
+      if (looksLikeEmailConfirm && hasAuthTokens) {
+        setMode("login");
+        setLoginError(null);
+
+        let confirmedEmail = "";
+
+        try {
+          // This triggers Supabase URL session detection (if enabled in your client)
+          const { data: sessionData } = await supabase.auth.getSession();
+
+          if (sessionData?.session) {
+            const { data: userData } = await supabase.auth.getUser();
+            confirmedEmail = userData.user?.email ?? "";
+          }
+        } catch {
+          // ignore
+        }
+
+        if (!confirmedEmail && emailFromQuery) {
+          confirmedEmail = emailFromQuery;
+        }
+
+        if (!cancelled) {
+          if (confirmedEmail) {
+            setLoginEmail(confirmedEmail.toLowerCase());
+          }
+
+          setInlineBanner({
+            kind: "success",
+            message: "✅ Email confirmed. You can now sign in to your account."
+          });
+        }
+
+        // IMPORTANT: do NOT auto-login — clear any session created by the confirm link
+        try {
+          await supabase.auth.signOut();
+        } catch {
+          // ignore
+        }
+
+        clearHashPreserveSearch();
+      }
+    };
+
+    void run();
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  
   const age = signupBirthdate
     ? calculateAgeFromBirthdate(signupBirthdate)
     : null;
@@ -284,6 +441,47 @@ const LoginPage: React.FC = () => {
 
       {mode === "signup" ? (
         <form onSubmit={handleSignupSubmit}>
+          {inlineBanner && (
+            <div
+              style={{
+                marginBottom: "0.75rem",
+                padding: "0.6rem 0.75rem",
+                borderRadius: "10px",
+                border: "1px solid #d1d5db",
+                background:
+                  inlineBanner.kind === "success"
+                    ? "#ecfdf5"
+                    : inlineBanner.kind === "error"
+                    ? "#fef2f2"
+                    : "#eff6ff",
+                color: "#111827",
+                display: "flex",
+                alignItems: "flex-start",
+                justifyContent: "space-between",
+                gap: "0.75rem"
+              }}
+            >
+              <div style={{ fontSize: "0.85rem", lineHeight: 1.35 }}>
+                {inlineBanner.message}
+              </div>
+              <button
+                type="button"
+                onClick={() => setInlineBanner(null)}
+                style={{
+                  border: "none",
+                  background: "transparent",
+                  cursor: "pointer",
+                  fontSize: "1rem",
+                  lineHeight: 1
+                }}
+                aria-label="Dismiss"
+                title="Dismiss"
+              >
+                ×
+              </button>
+            </div>
+          )}
+
           {/* Role selection */}
           <div style={{ marginBottom: "0.75rem" }}>
             <label
@@ -435,7 +633,12 @@ const LoginPage: React.FC = () => {
             <input
               type="email"
               value={signupEmail}
-              onChange={(e) => setSignupEmail(e.target.value)}
+              onChange={(e) => {
+                setSignupEmail(e.target.value);
+                setSignupError(null);
+                setSignupSuccess(null);
+                setInlineBanner(null);
+              }}
               style={{
                 width: "100%",
                 padding: "0.4rem 0.6rem",
@@ -559,6 +762,47 @@ const LoginPage: React.FC = () => {
         </form>
       ) : (
         <form onSubmit={handleLoginSubmit}>
+          {inlineBanner && (
+            <div
+              style={{
+                marginBottom: "0.75rem",
+                padding: "0.6rem 0.75rem",
+                borderRadius: "10px",
+                border: "1px solid #d1d5db",
+                background:
+                  inlineBanner.kind === "success"
+                    ? "#ecfdf5"
+                    : inlineBanner.kind === "error"
+                    ? "#fef2f2"
+                    : "#eff6ff",
+                color: "#111827",
+                display: "flex",
+                alignItems: "flex-start",
+                justifyContent: "space-between",
+                gap: "0.75rem"
+              }}
+            >
+              <div style={{ fontSize: "0.85rem", lineHeight: 1.35 }}>
+                {inlineBanner.message}
+              </div>
+              <button
+                type="button"
+                onClick={() => setInlineBanner(null)}
+                style={{
+                  border: "none",
+                  background: "transparent",
+                  cursor: "pointer",
+                  fontSize: "1rem",
+                  lineHeight: 1
+                }}
+                aria-label="Dismiss"
+                title="Dismiss"
+              >
+                ×
+              </button>
+            </div>
+          )}
+
           {/* Email */}
           <div style={{ marginBottom: "0.75rem" }}>
             <label
@@ -574,7 +818,11 @@ const LoginPage: React.FC = () => {
             <input
               type="email"
               value={loginEmail}
-              onChange={(e) => setLoginEmail(e.target.value)}
+              onChange={(e) => {
+                setLoginEmail(e.target.value);
+                setLoginError(null);
+                setInlineBanner(null); // clear after user edits
+              }}
               style={{
                 width: "100%",
                 padding: "0.4rem 0.6rem",

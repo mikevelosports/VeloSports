@@ -321,6 +321,102 @@ router.get(
 );
 
 /**
+ * GET /api/profiles/:profileId/team-invitations
+ * Query:
+ *  - status=pending (default), or status=all
+ *
+ * Returns invitations addressed to the profile's email.
+ */
+router.get(
+  "/profiles/:profileId/team-invitations",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { profileId } = req.params;
+      const status = String(req.query.status || "pending").toLowerCase();
+
+      if (!profileId) {
+        return res.status(400).json({ error: "profileId is required" });
+      }
+
+      const { data: profile, error: profileError } = await supabaseAdmin
+        .from("profiles")
+        .select("id, email, role")
+        .eq("id", profileId)
+        .single();
+
+      if (profileError) throw profileError;
+
+      const email = String(profile?.email || "").trim().toLowerCase();
+      if (!email) {
+        return res.json([]);
+      }
+
+      let query = supabaseAdmin
+        .from("team_invitations")
+        .select("*")
+        .eq("email", email);
+
+      if (status !== "all") {
+        query = query.eq("status", status);
+      }
+
+      const { data: invites, error: invitesError } = await query;
+
+      if (invitesError) throw invitesError;
+
+      const now = new Date();
+
+      const valid = (invites ?? []).filter((i: any) => {
+        if (i.status !== "pending") return false;
+        if (!i.expires_at) return true;
+        const exp = new Date(i.expires_at);
+        return !Number.isNaN(exp.getTime()) && exp > now;
+      });
+
+      const teamIds = Array.from(new Set(valid.map((i: any) => i.team_id)));
+
+      let teamNameById = new Map<string, string>();
+      if (teamIds.length > 0) {
+        const { data: teams, error: teamsError } = await supabaseAdmin
+          .from("teams")
+          .select("id, name")
+          .in("id", teamIds);
+
+        if (teamsError) throw teamsError;
+
+        teamNameById = new Map(
+          (teams ?? []).map((t: any) => [t.id as string, t.name as string])
+        );
+      }
+
+      const result = valid
+        .map((i: any) => ({
+          id: i.id,
+          teamId: i.team_id,
+          teamName: teamNameById.get(i.team_id) ?? "Team",
+          email: i.email,
+          firstName: i.first_name ?? null,
+          lastName: i.last_name ?? null,
+          memberRole: i.member_role,
+          status: i.status,
+          inviteToken: i.invite_token,
+          createdAt: i.created_at,
+          expiresAt: i.expires_at ?? null
+        }))
+        .sort(
+          (a: any, b: any) =>
+            new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+        );
+
+      return res.json(result);
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+
+/**
  * Helper: fetch team + ensure profile is a member (or owner).
  * If profileId is provided, enforce access; otherwise just load.
  */
@@ -801,8 +897,8 @@ router.post(
       const inviteTokenParam = encodeURIComponent(i.invite_token);
       const emailParam = encodeURIComponent(i.email);
 
-      const existingInviteUrl = `${ENV.appBaseUrl}/team-invite/accept?token=${inviteTokenParam}`;
-      const newInviteUrl = `${ENV.appBaseUrl}/signup?email=${emailParam}&teamInviteToken=${inviteTokenParam}`;
+      const existingInviteUrl = `${ENV.appBaseUrl}/login?teamInviteToken=${inviteTokenParam}&email=${emailParam}`;
+      const newInviteUrl = `${ENV.appBaseUrl}/login?mode=signup&teamInviteToken=${inviteTokenParam}&email=${emailParam}`;
 
       // Fire-and-forget email (errors are logged but won't break the API)
       void sendTeamInviteEmail({
@@ -991,10 +1087,19 @@ router.post(
 
 /**
  * POST /api/team-invitations/:token/accept
- *
+ *updated this version to handle parent invites from coaches
  * Body:
  *  - profileId (the logged-in profile accepting the invite)
  */
+function generateDummyEmail(firstName: string, lastName: string): string {
+  const base = `${firstName ?? ""}${lastName ?? ""}`
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "");
+  const safe = base || "player";
+  const rand = Math.random().toString(36).slice(2, 10);
+  return `${safe}-${rand}@baseballpop.com`;
+}
+
 router.post(
   "/team-invitations/:token/accept",
   async (req: Request, res: Response, next: NextFunction) => {
@@ -1009,6 +1114,7 @@ router.post(
         return res.status(400).json({ error: "profileId is required" });
       }
 
+      // Load invite
       const { data: invite, error: inviteError } = await supabaseAdmin
         .from("team_invitations")
         .select("*")
@@ -1029,9 +1135,126 @@ router.post(
       }
 
       if (i.expires_at && new Date(i.expires_at) < new Date()) {
-        return res
-          .status(400)
-          .json({ error: "Invitation has expired" });
+        return res.status(400).json({ error: "Invitation has expired" });
+      }
+
+      // Load acceptor profile (player or parent)
+      const { data: acceptor, error: acceptorError } = await supabaseAdmin
+        .from("profiles")
+        .select("id, role, email, first_name, last_name")
+        .eq("id", profileId)
+        .single();
+
+      if (acceptorError) throw acceptorError;
+      if (!acceptor) {
+        return res.status(404).json({ error: "Profile not found" });
+      }
+
+      const acceptorEmail = String(acceptor.email || "").trim().toLowerCase();
+      const inviteEmail = String(i.email || "").trim().toLowerCase();
+
+      // SECURITY: invite token must be accepted by the profile with matching email
+      if (!acceptorEmail || acceptorEmail !== inviteEmail) {
+        return res.status(403).json({
+          error:
+            "This invite was sent to a different email address. Please sign in with the invited email."
+        });
+      }
+
+      // Determine which profile gets added to the team
+      // - Player accept: add the player
+      // - Parent accept for child invite: add (or create) the child player profile
+      let membershipProfileId = acceptor.id;
+      let addedChildProfile: { id: string; firstName: string | null; lastName: string | null } | null =
+        null;
+
+      if (i.member_role === "player" && acceptor.role === "parent") {
+        const childFirst = i.first_name ?? null;
+        const childLast = i.last_name ?? null;
+
+        // Find existing child linked to this parent by name (best-effort)
+        const { data: links, error: linksError } = await supabaseAdmin
+          .from("player_parent_links")
+          .select("player_id")
+          .eq("parent_id", acceptor.id);
+
+        if (linksError) throw linksError;
+
+        const playerIds = (links ?? [])
+          .map((l: any) => l.player_id as string)
+          .filter(Boolean);
+
+        let matchedChild:
+          | { id: string; first_name: string | null; last_name: string | null }
+          | null = null;
+
+        if (playerIds.length > 0 && (childFirst || childLast)) {
+          const { data: players, error: playersError } = await supabaseAdmin
+            .from("profiles")
+            .select("id, first_name, last_name, role")
+            .in("id", playerIds);
+
+          if (playersError) throw playersError;
+
+          const norm = (s: any) => String(s || "").trim().toLowerCase();
+
+          matchedChild =
+            (players ?? [])
+              .filter((p: any) => p.role === "player")
+              .find((p: any) => {
+                const fnOk = childFirst
+                  ? norm(p.first_name) === norm(childFirst)
+                  : true;
+                const lnOk = childLast
+                  ? norm(p.last_name) === norm(childLast)
+                  : true;
+                return fnOk && lnOk;
+              }) ?? null;
+        }
+
+        if (matchedChild) {
+          membershipProfileId = matchedChild.id;
+          addedChildProfile = {
+            id: matchedChild.id,
+            firstName: matchedChild.first_name ?? null,
+            lastName: matchedChild.last_name ?? null
+          };
+        } else {
+          // Create a new child player profile and link it to the parent
+          const safeFirst = (childFirst || "Player").toString();
+          const safeLast = (childLast || "").toString();
+          const dummyEmail = generateDummyEmail(safeFirst, safeLast);
+
+          const { data: newChild, error: childError } = await supabaseAdmin
+            .from("profiles")
+            .insert({
+              role: "player",
+              first_name: safeFirst,
+              last_name: safeLast || null,
+              email: dummyEmail,
+              auth_user_id: null
+            })
+            .select("id, first_name, last_name")
+            .single();
+
+          if (childError) throw childError;
+
+          const { error: linkError } = await supabaseAdmin
+            .from("player_parent_links")
+            .insert({
+              parent_id: acceptor.id,
+              player_id: newChild.id
+            });
+
+          if (linkError) throw linkError;
+
+          membershipProfileId = newChild.id;
+          addedChildProfile = {
+            id: newChild.id,
+            firstName: newChild.first_name ?? null,
+            lastName: newChild.last_name ?? null
+          };
+        }
       }
 
       // Add membership (idempotent upsert)
@@ -1040,7 +1263,7 @@ router.post(
         .upsert(
           {
             team_id: i.team_id,
-            profile_id: profileId,
+            profile_id: membershipProfileId,
             member_role: i.member_role,
             is_owner: false,
             invited_by_profile_id: i.invited_by_profile_id,
@@ -1053,17 +1276,16 @@ router.post(
 
       if (memberError) throw memberError;
 
-      // Mark invitation as accepted
-      const { data: updatedInvite, error: updateError } =
-        await supabaseAdmin
-          .from("team_invitations")
-          .update({
-            status: "accepted",
-            accepted_profile_id: profileId
-          })
-          .eq("id", i.id)
-          .select("*")
-          .single();
+      // Mark invitation accepted (store the profile that was actually added)
+      const { data: updatedInvite, error: updateError } = await supabaseAdmin
+        .from("team_invitations")
+        .update({
+          status: "accepted",
+          accepted_profile_id: membershipProfileId
+        })
+        .eq("id", i.id)
+        .select("*")
+        .single();
 
       if (updateError) throw updateError;
 
@@ -1073,12 +1295,15 @@ router.post(
         id: ui.id,
         teamId: ui.team_id,
         status: ui.status,
-        acceptedProfileId: ui.accepted_profile_id
+        acceptedProfileId: membershipProfileId,
+        acceptedByProfileId: acceptor.id,
+        childProfile: addedChildProfile
       });
     } catch (err) {
       next(err);
     }
   }
 );
+
 
 export default router;

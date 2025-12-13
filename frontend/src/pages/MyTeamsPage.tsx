@@ -59,8 +59,16 @@ const MyTeamsPage: React.FC<MyTeamsPageProps> = ({ onBack }) => {
   const [inviteFirstName, setInviteFirstName] = useState("");
   const [inviteLastName, setInviteLastName] = useState("");
   const [inviteRole, setInviteRole] = useState<TeamMemberRole>("player");
+  const [inviteIsUnder13, setInviteIsUnder13] = useState(false);
   const [inviting, setInviting] = useState(false);
   const [inviteError, setInviteError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (inviteIsUnder13 && inviteRole !== "player") {
+      setInviteRole("player");
+    }
+  }, [inviteIsUnder13, inviteRole]);
+
 
   // Resend invite flow
   const [resendingInviteId, setResendingInviteId] = useState<string | null>(
@@ -192,10 +200,22 @@ const MyTeamsPage: React.FC<MyTeamsPageProps> = ({ onBack }) => {
 
   const handleCreateInvitation = async () => {
     if (!currentProfile || !selectedTeam) return;
+
     const email = inviteEmail.trim();
     if (!email) {
-      setInviteError("Email is required");
+      setInviteError(inviteIsUnder13 ? "Parent email is required" : "Email is required");
       return;
+    }
+
+    const first = inviteFirstName.trim();
+    const last = inviteLastName.trim();
+
+    // Under-13 flow: player name is required
+    if (inviteIsUnder13) {
+      if (!first || !last) {
+        setInviteError("Player first name and last name are required for under-13 invites");
+        return;
+      }
     }
 
     try {
@@ -206,25 +226,29 @@ const MyTeamsPage: React.FC<MyTeamsPageProps> = ({ onBack }) => {
         teamId: selectedTeam.id,
         requesterProfileId: currentProfile.id,
         email,
-        memberRole: inviteRole,
-        firstName: inviteFirstName.trim() || undefined,
-        lastName: inviteLastName.trim() || undefined
+        // Under-13 always creates a player invite addressed to the parent email
+        memberRole: inviteIsUnder13 ? "player" : inviteRole,
+        // Under-13: first/last represent the CHILD name (used later in parent dashboard)
+        firstName: first || undefined,
+        lastName: last || undefined
       });
 
-      // Refresh team detail to show new pending invite
       const detail = await fetchTeamDetail(selectedTeam.id, currentProfile.id);
       setSelectedTeam(detail);
 
+      // Reset form
       setInviteEmail("");
       setInviteFirstName("");
       setInviteLastName("");
       setInviteRole("player");
+      setInviteIsUnder13(false);
     } catch (err: any) {
       setInviteError(err?.message ?? "Failed to create invitation");
     } finally {
       setInviting(false);
     }
   };
+
 
   const handleResendInvitation = async (invitationId: string) => {
     if (!currentProfile || !selectedTeam) return;
@@ -1171,27 +1195,40 @@ const MyTeamsPage: React.FC<MyTeamsPageProps> = ({ onBack }) => {
                   <div
                     style={{
                       display: "grid",
-                      gridTemplateColumns:
-                        "repeat(auto-fit, minmax(160px, 1fr))",
+                      gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
                       gap: "0.5rem",
                       marginBottom: "0.4rem"
                     }}
                   >
+                    {/* Under-13 toggle */}
+                    <div style={{ gridColumn: "1 / -1" }}>
+                      <label style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.85rem", color: PRIMARY_TEXT }}>
+                        <input
+                          type="checkbox"
+                          checked={inviteIsUnder13}
+                          onChange={(e) => {
+                            setInviteIsUnder13(e.target.checked);
+                            setInviteError(null);
+                          }}
+                        />
+                        Is the player under 13?
+                      </label>
+                      {inviteIsUnder13 && (
+                        <p style={{ margin: "0.25rem 0 0", fontSize: "0.8rem", color: MUTED_TEXT }}>
+                          We’ll email the parent. The invite will show on their dashboard as an invite for the player name.
+                        </p>
+                      )}
+                    </div>
+
                     <div>
-                      <label
-                        style={{
-                          display: "block",
-                          fontSize: "0.8rem",
-                          color: MUTED_TEXT
-                        }}
-                      >
-                        Email *
+                      <label style={{ display: "block", fontSize: "0.8rem", color: MUTED_TEXT }}>
+                        {inviteIsUnder13 ? "Parent Email *" : "Email *"}
                       </label>
                       <input
                         type="email"
                         value={inviteEmail}
                         onChange={(e) => setInviteEmail(e.target.value)}
-                        placeholder="player@team.com"
+                        placeholder={inviteIsUnder13 ? "parent@family.com" : "player@team.com"}
                         style={{
                           width: "100%",
                           marginTop: "0.25rem",
@@ -1204,22 +1241,15 @@ const MyTeamsPage: React.FC<MyTeamsPageProps> = ({ onBack }) => {
                         }}
                       />
                     </div>
+
                     <div>
-                      <label
-                        style={{
-                          display: "block",
-                          fontSize: "0.8rem",
-                          color: MUTED_TEXT
-                        }}
-                      >
-                        First name
+                      <label style={{ display: "block", fontSize: "0.8rem", color: MUTED_TEXT }}>
+                        {inviteIsUnder13 ? "Player First Name *" : "First name"}
                       </label>
                       <input
                         type="text"
                         value={inviteFirstName}
-                        onChange={(e) =>
-                          setInviteFirstName(e.target.value)
-                        }
+                        onChange={(e) => setInviteFirstName(e.target.value)}
                         style={{
                           width: "100%",
                           marginTop: "0.25rem",
@@ -1232,22 +1262,15 @@ const MyTeamsPage: React.FC<MyTeamsPageProps> = ({ onBack }) => {
                         }}
                       />
                     </div>
+
                     <div>
-                      <label
-                        style={{
-                          display: "block",
-                          fontSize: "0.8rem",
-                          color: MUTED_TEXT
-                        }}
-                      >
-                        Last name
+                      <label style={{ display: "block", fontSize: "0.8rem", color: MUTED_TEXT }}>
+                        {inviteIsUnder13 ? "Player Last Name *" : "Last name"}
                       </label>
                       <input
                         type="text"
                         value={inviteLastName}
-                        onChange={(e) =>
-                          setInviteLastName(e.target.value)
-                        }
+                        onChange={(e) => setInviteLastName(e.target.value)}
                         style={{
                           width: "100%",
                           marginTop: "0.25rem",
@@ -1260,23 +1283,15 @@ const MyTeamsPage: React.FC<MyTeamsPageProps> = ({ onBack }) => {
                         }}
                       />
                     </div>
+
                     <div>
-                      <label
-                        style={{
-                          display: "block",
-                          fontSize: "0.8rem",
-                          color: MUTED_TEXT
-                        }}
-                      >
+                      <label style={{ display: "block", fontSize: "0.8rem", color: MUTED_TEXT }}>
                         Team role
                       </label>
                       <select
                         value={inviteRole}
-                        onChange={(e) =>
-                          setInviteRole(
-                            e.target.value as TeamMemberRole
-                          )
-                        }
+                        onChange={(e) => setInviteRole(e.target.value as TeamMemberRole)}
+                        disabled={inviteIsUnder13}
                         style={{
                           width: "100%",
                           marginTop: "0.25rem",
@@ -1285,15 +1300,16 @@ const MyTeamsPage: React.FC<MyTeamsPageProps> = ({ onBack }) => {
                           border: `1px solid ${CARD_BORDER}`,
                           background: CARD_BG,
                           color: PRIMARY_TEXT,
-                          fontSize: "0.85rem"
+                          fontSize: "0.85rem",
+                          opacity: inviteIsUnder13 ? 0.7 : 1
                         }}
                       >
                         <option value="player">Player</option>
-                        <option value="parent">Parent</option>
                         <option value="coach">Coach</option>
                       </select>
                     </div>
                   </div>
+
 
                   {inviteError && (
                     <p
