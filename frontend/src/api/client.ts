@@ -1,7 +1,10 @@
 // frontend/src/api/client.ts
 import { supabase } from "../supabaseClient";
 
-export const API_BASE_URL = "/api";
+// Set VITE_API_BASE_URL on the *frontend* Render service to:
+// https://<your-backend>.onrender.com/api
+export const API_BASE_URL =
+  import.meta.env.VITE_API_BASE_URL || "/api";
 
 export interface Protocol {
   id: string;
