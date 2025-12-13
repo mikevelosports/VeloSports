@@ -1,4 +1,4 @@
-// frontend/src/api/teams.ts
+import { API_BASE_URL, apiFetch } from "./client";
 
 export type TeamMemberRole = "player" | "coach" | "parent";
 
@@ -49,19 +49,16 @@ export interface CreateTeamInput {
   logoUrl?: string;
 }
 
-export async function createTeam(
-  input: CreateTeamInput
-): Promise<TeamSummary> {
-  const res = await fetch("/api/teams", {
+export async function createTeam(input: CreateTeamInput): Promise<TeamSummary> {
+  const res = await apiFetch(`${API_BASE_URL}/teams`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input)
   });
 
   if (!res.ok) {
-    throw new Error(
-      `Failed to create team: ${res.status} ${res.statusText}`
-    );
+    const text = await res.text().catch(() => "");
+    throw new Error(`Failed to create team: ${res.status} ${text.slice(0, 200)}`);
   }
 
   return (await res.json()) as TeamSummary;
@@ -70,11 +67,10 @@ export async function createTeam(
 export async function fetchTeamsForProfile(
   profileId: string
 ): Promise<TeamSummary[]> {
-  const res = await fetch(`/api/profiles/${profileId}/teams`);
+  const res = await apiFetch(`${API_BASE_URL}/profiles/${profileId}/teams`);
   if (!res.ok) {
-    throw new Error(
-      `Failed to load teams: ${res.status} ${res.statusText}`
-    );
+    const text = await res.text().catch(() => "");
+    throw new Error(`Failed to load teams: ${res.status} ${text.slice(0, 200)}`);
   }
   return (await res.json()) as TeamSummary[];
 }
@@ -83,13 +79,12 @@ export async function fetchTeamDetail(
   teamId: string,
   profileId: string
 ): Promise<TeamDetail> {
-  const res = await fetch(
-    `/api/teams/${teamId}?profileId=${encodeURIComponent(profileId)}`
+  const res = await apiFetch(
+    `${API_BASE_URL}/teams/${teamId}?profileId=${encodeURIComponent(profileId)}`
   );
   if (!res.ok) {
-    throw new Error(
-      `Failed to load team: ${res.status} ${res.statusText}`
-    );
+    const text = await res.text().catch(() => "");
+    throw new Error(`Failed to load team: ${res.status} ${text.slice(0, 200)}`);
   }
   return (await res.json()) as TeamDetail;
 }
@@ -105,21 +100,19 @@ export interface UpdateTeamInput {
   logoUrl?: string;
 }
 
-export async function updateTeam(
-  input: UpdateTeamInput
-): Promise<TeamSummary> {
+export async function updateTeam(input: UpdateTeamInput): Promise<TeamSummary> {
   const { teamId, ...body } = input;
-  const res = await fetch(`/api/teams/${teamId}`, {
+  const res = await apiFetch(`${API_BASE_URL}/teams/${teamId}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body)
   });
 
   if (!res.ok) {
-    throw new Error(
-      `Failed to update team: ${res.status} ${res.statusText}`
-    );
+    const text = await res.text().catch(() => "");
+    throw new Error(`Failed to update team: ${res.status} ${text.slice(0, 200)}`);
   }
+
   return (await res.json()) as TeamSummary;
 }
 
@@ -127,16 +120,15 @@ export async function deleteTeam(
   teamId: string,
   requesterProfileId: string
 ): Promise<void> {
-  const res = await fetch(`/api/teams/${teamId}`, {
+  const res = await apiFetch(`${API_BASE_URL}/teams/${teamId}`, {
     method: "DELETE",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ requesterProfileId })
   });
 
   if (!res.ok && res.status !== 204) {
-    throw new Error(
-      `Failed to delete team: ${res.status} ${res.statusText}`
-    );
+    const text = await res.text().catch(() => "");
+    throw new Error(`Failed to delete team: ${res.status} ${text.slice(0, 200)}`);
   }
 }
 
@@ -165,98 +157,79 @@ export async function createTeamInvitation(
   input: CreateTeamInvitationInput
 ): Promise<TeamInvitation> {
   const { teamId, ...body } = input;
-  const res = await fetch(`/api/teams/${teamId}/invitations`, {
+  const res = await apiFetch(`${API_BASE_URL}/teams/${teamId}/invitations`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body)
   });
 
   if (!res.ok) {
-    throw new Error(
-      `Failed to create invitation: ${res.status} ${res.statusText}`
-    );
+    const text = await res.text().catch(() => "");
+    throw new Error(`Failed to create invitation: ${res.status} ${text.slice(0, 200)}`);
   }
 
   return (await res.json()) as TeamInvitation;
 }
 
-/**
- * Accept an invitation with a token (clicked from email).
- */
 export async function acceptTeamInvitation(
   token: string,
   profileId: string
 ): Promise<{ id: string; teamId: string; status: string }> {
-  const res = await fetch(`/api/team-invitations/${token}/accept`, {
+  const res = await apiFetch(`${API_BASE_URL}/team-invitations/${token}/accept`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ profileId })
   });
 
   if (!res.ok) {
-    throw new Error(
-      `Failed to accept invitation: ${res.status} ${res.statusText}`
-    );
+    const text = await res.text().catch(() => "");
+    throw new Error(`Failed to accept invitation: ${res.status} ${text.slice(0, 200)}`);
   }
 
-  return (await res.json()) as {
-    id: string;
-    teamId: string;
-    status: string;
-  };
+  return (await res.json()) as { id: string; teamId: string; status: string };
 }
 
-/**
- * Leave a team as the current member.
- *
- * DELETE /api/teams/:teamId/members
- * Body:
- *  - profileId (the member leaving the team)
- */
-export async function leaveTeam(
-  teamId: string,
-  profileId: string
-): Promise<void> {
-  const res = await fetch(`/api/teams/${teamId}/members`, {
+export async function leaveTeam(teamId: string, profileId: string): Promise<void> {
+  const res = await apiFetch(`${API_BASE_URL}/teams/${teamId}/members`, {
     method: "DELETE",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ profileId })
   });
 
   if (!res.ok && res.status !== 204) {
-    let message = `Failed to leave team: ${res.status} ${res.statusText}`;
+    const text = await res.text().catch(() => "");
+    let message = `Failed to leave team: ${res.status} ${text.slice(0, 200)}`;
     try {
-      const body = await res.json();
-      if (body?.error && typeof body.error === "string") {
-        message = body.error;
-      }
+      const body = JSON.parse(text);
+      if (body?.error && typeof body.error === "string") message = body.error;
     } catch {
-      // ignore JSON parse errors
+      // ignore parse errors
     }
     throw new Error(message);
   }
 }
 
-
 export async function resendTeamInvitation(
   invitationId: string,
   requesterProfileId: string
 ): Promise<void> {
-  const res = await fetch(`/api/team-invitations/${invitationId}/resend`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ requesterProfileId })
-  });
+  const res = await apiFetch(
+    `${API_BASE_URL}/team-invitations/${invitationId}/resend`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ requesterProfileId })
+    }
+  );
 
   if (!res.ok) {
-    let message = `Failed to resend invitation: ${res.status} ${res.statusText}`;
+    const text = await res.text().catch(() => "");
+    let message = `Failed to resend invitation: ${res.status} ${text.slice(0, 200)}`;
     try {
-      const body = await res.json();
-      if (body?.error && typeof body.error === "string") {
-        message = body.error;
-      }
+      const body = JSON.parse(text);
+      if (body?.error && typeof body.error === "string") message = body.error;
     } catch {
-      // ignore JSON parse errors
+      // ignore parse errors
     }
     throw new Error(message);
   }

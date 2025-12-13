@@ -1,10 +1,51 @@
-// frontend/src/api/client.ts
 import { supabase } from "../supabaseClient";
 
-// Set VITE_API_BASE_URL on the *frontend* Render service to:
-// https://<your-backend>.onrender.com/api
-export const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL || "/api";
+/**
+ * VITE_API_BASE_URL can be:
+ *  - "https://<backend>.onrender.com"
+ *  - "https://<backend>.onrender.com/api"
+ *  - "/api" (local dev / proxy)
+ *
+ * We normalize it so API_BASE_URL always ends with "/api" (no trailing slash).
+ */
+const RAW_API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "/api";
+const trimmed = RAW_API_BASE_URL.replace(/\/+$/, "");
+
+export const API_BASE_URL = trimmed.endsWith("/api")
+  ? trimmed
+  : `${trimmed}/api`;
+
+const isAbsoluteUrl = (u: string) => /^https?:\/\//i.test(u);
+
+/**
+ * Resolve an input URL into a final fetch URL.
+ * Supports:
+ *  - absolute URLs (returned as-is)
+ *  - "/api/..." (rewritten to backend absolute when API_BASE_URL is absolute)
+ *  - "/..." (prefixed with API_BASE_URL)
+ *  - "..." (joined onto API_BASE_URL)
+ */
+export function resolveApiUrl(input: string): string {
+  if (isAbsoluteUrl(input)) return input;
+
+  // If someone accidentally passes "/api/..." directly:
+  if (input.startsWith("/api")) {
+    if (isAbsoluteUrl(API_BASE_URL)) {
+      // Replace leading "/api" with absolute API_BASE_URL
+      return `${API_BASE_URL}${input.slice("/api".length)}`;
+    }
+    // In dev, "/api/..." is fine (vite proxy / relative)
+    return input;
+  }
+
+  if (input.startsWith("/")) {
+    // "/teams" -> "<API_BASE_URL>/teams" OR "/api/teams" in dev
+    return `${API_BASE_URL}${input}`;
+  }
+
+  // "teams" -> "<API_BASE_URL>/teams"
+  return `${API_BASE_URL}/${input}`;
+}
 
 export interface Protocol {
   id: string;
@@ -43,6 +84,11 @@ export interface ProtocolWithSteps extends Protocol {
 /**
  * Wrapper around fetch that automatically attaches the Supabase access token
  * (if present) as Authorization: Bearer <token>.
+ *
+ * Also resolves URLs so callers can safely pass:
+ *  - `${API_BASE_URL}/...`
+ *  - `/api/...`
+ *  - `/...`
  */
 export async function apiFetch(
   input: string,
@@ -52,11 +98,12 @@ export async function apiFetch(
   const accessToken = data.session?.access_token;
 
   const headers = new Headers(init.headers ?? {});
-  if (accessToken) {
+  if (accessToken && !headers.has("Authorization")) {
     headers.set("Authorization", `Bearer ${accessToken}`);
   }
 
-  return fetch(input, { ...init, headers });
+  const url = resolveApiUrl(input);
+  return fetch(url, { ...init, headers });
 }
 
 export async function fetchProtocols(category?: string): Promise<Protocol[]> {

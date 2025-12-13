@@ -1,5 +1,4 @@
-// frontend/src/api/medals.ts
-import { API_BASE_URL } from "./client";
+import { API_BASE_URL, apiFetch } from "./client";
 
 export type MedalCategory =
   | "general"
@@ -40,7 +39,6 @@ export interface Medal {
   is_active: boolean;
   created_at: string;
   updated_at: string;
-  // New: full public URL for the medal image (added by backend)
   image_url?: string | null;
 }
 
@@ -57,15 +55,10 @@ export interface PlayerMedal {
 export interface PlayerMedalsResponse {
   medals: Medal[];
   earned: PlayerMedal[];
-  // New: age group computed on the backend from profile.birthdate / softball
   playerAgeGroup?: AgeGroup | null;
-  // New: whether this player is marked as a softball player
   isSoftball?: boolean | null;
 }
 
-/**
- * Fetch medal definitions, optionally filtered by category/age_group/badge_tier.
- */
 export async function fetchMedals(opts?: {
   category?: string;
   age_group?: string;
@@ -84,22 +77,21 @@ export async function fetchMedals(opts?: {
   const qs = params.toString();
   const url = `${API_BASE_URL}/medals${qs ? `?${qs}` : ""}`;
 
-  const res = await fetch(url);
+  const res = await apiFetch(url);
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    throw new Error(`Failed to fetch medals: ${res.status} ${text.slice(0, 200)}`);
+    throw new Error(
+      `Failed to fetch medals: ${res.status} ${text.slice(0, 200)}`
+    );
   }
 
   return res.json();
 }
 
-/**
- * Fetch earned medals for a given player, plus the full medal catalog.
- */
 export async function fetchPlayerMedals(
   playerId: string
 ): Promise<PlayerMedalsResponse> {
-  const res = await fetch(`${API_BASE_URL}/players/${playerId}/medals`);
+  const res = await apiFetch(`${API_BASE_URL}/players/${playerId}/medals`);
 
   if (!res.ok) {
     const text = await res.text().catch(() => "");

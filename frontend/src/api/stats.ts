@@ -1,5 +1,4 @@
-// frontend/src/api/stats.ts
-import { API_BASE_URL } from "./client";
+import { API_BASE_URL, apiFetch } from "./client";
 
 export type ProtocolCategory =
   | "overspeed"
@@ -8,7 +7,6 @@ export type ProtocolCategory =
   | "exit_velo_application"
   | "warm_up"
   | "assessments";
-
 
 export type VeloConfigKey = "base_bat" | "green_sleeve" | "full_loaded";
 export type SwingSide = "dominant" | "non_dominant";
@@ -41,8 +39,8 @@ export interface SessionCounts {
 export interface PlayerStats {
   playerId: string;
   personalBest: {
-    batSpeedMph: number | null;  // GAME BAT, assessments only
-    exitVeloMph: number | null;  // GAME BAT, assessments only
+    batSpeedMph: number | null;
+    exitVeloMph: number | null;
   };
   gains: {
     batSpeed: GainStat | null;
@@ -50,32 +48,20 @@ export interface PlayerStats {
   };
   configBySide: Record<
     VeloConfigKey,
-    Record<
-      SwingSide,
-      {
-        bestBatSpeedMph: number | null;
-      }
-    >
+    Record<SwingSide, { bestBatSpeedMph: number | null }>
   >;
   fastestDrills: Record<
     VeloConfigKey,
-    {
-      drillName: string | null;
-      bestBatSpeedMph: number | null;
-    }
+    { drillName: string | null; bestBatSpeedMph: number | null }
   >;
   sessionCounts: SessionCounts;
 }
 
-export async function fetchPlayerStats(
-  playerId: string
-): Promise<PlayerStats> {
-  const res = await fetch(`${API_BASE_URL}/players/${playerId}/stats`);
+export async function fetchPlayerStats(playerId: string): Promise<PlayerStats> {
+  const res = await apiFetch(`${API_BASE_URL}/players/${playerId}/stats`);
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    throw new Error(
-      `Failed to fetch player stats: ${res.status} ${text.slice(0, 200)}`
-    );
+    throw new Error(`Failed to fetch player stats: ${res.status} ${text.slice(0, 200)}`);
   }
   return res.json();
 }

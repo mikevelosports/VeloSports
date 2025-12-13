@@ -1,5 +1,4 @@
-// frontend/src/api/protocols.ts
-import { API_BASE_URL } from "./client";
+import { API_BASE_URL, apiFetch } from "./client";
 import type { Protocol } from "./client";
 
 export interface ProtocolStep {
@@ -25,7 +24,7 @@ export interface ProtocolWithSteps extends Protocol {
 export async function fetchProtocolWithSteps(
   id: string
 ): Promise<ProtocolWithSteps> {
-  const res = await fetch(`${API_BASE_URL}/protocols/${id}`);
+  const res = await apiFetch(`${API_BASE_URL}/protocols/${id}`);
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     throw new Error(
