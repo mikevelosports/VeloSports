@@ -4,10 +4,11 @@ import { supabaseAdmin } from "../config/supabaseClient";
 import { awardMedalsForPlayerEvents } from "./medals.routes";
 import { ENV } from "../config/env";
 import {
-  sendParentLinkExistingEmail,
-  sendTestEmail,
-  sendSupportContactEmail  
+  sendParentLinkInviteEmail,
+  sendSupportContactEmail
 } from "../services/emailService";
+import { randomUUID } from "crypto";
+
 
 
 type Role = "player" | "coach" | "parent" | "admin";
@@ -37,6 +38,19 @@ interface SupportContactBody {
   message?: string;
   profileId?: string;
   source?: string;
+}
+
+interface ParentLinkInvitationRow {
+  id: string;
+  parent_id: string;
+  email: string;
+  first_name: string | null;
+  last_name: string | null;
+  invite_token: string;
+  status: "pending" | "accepted" | "revoked" | "expired";
+  accepted_player_id: string | null;
+  created_at: string;
+  expires_at: string | null;
 }
 
 
@@ -452,7 +466,7 @@ router.delete(
  */
 router.get(
   "/profiles/:id",
-  async (req: Request, res: Response, next: NextFunction) => {
+    async (req: Request, res: Response) => {
     try {
       const { id } = req.params;
 
@@ -937,7 +951,11 @@ router.post(
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { parentId } = req.params;
-      const { email } = req.body;
+      const { email, first_name, last_name } = req.body as {
+        email?: string;
+        first_name?: string;
+        last_name?: string;
+      };
 
       if (!email || typeof email !== "string") {
         return res.status(400).json({ error: "email is required" });
@@ -948,13 +966,11 @@ router.post(
       // Confirm parent
       const { data: parent, error: parentError } = await supabaseAdmin
         .from("profiles")
-        .select("id, role, first_name, last_name")
+        .select("id, role, first_name, last_name, email")
         .eq("id", parentId)
         .single();
 
-      if (parentError) {
-        throw parentError;
-      }
+      if (parentError) throw parentError;
 
       if (!parent || parent.role !== "parent") {
         return res
@@ -962,90 +978,401 @@ router.post(
           .json({ error: "Parent not found or role is not 'parent'" });
       }
 
-      const parentName = `${parent.first_name ?? ""} ${
-        parent.last_name ?? ""
-      }`.trim() || "Parent";
+      const parentName =
+        `${parent.first_name ?? ""} ${parent.last_name ?? ""}`.trim() ||
+        parent.email ||
+        "A parent";
 
-      // Find player profile by email
-      const {
-        data: player,
-        error: playerError,
-        status: playerStatus
-      } = await supabaseAdmin
-        .from("profiles")
-        .select(
-          "id, role, email, first_name, last_name, auth_user_id, photo_url, playing_level, current_team"
-        )
+      // See if this email belongs to an existing player w/ auth
+      let hasExistingAuthUser = false;
+      try {
+        const { data: profiles, error } = await supabaseAdmin
+          .from("profiles")
+          .select("id, auth_user_id, role")
+          .eq("email", normalizedEmail)
+          .eq("role", "player");
+
+        if (error) throw error;
+        hasExistingAuthUser = !!(profiles ?? []).find((p: any) => p.auth_user_id);
+      } catch (e) {
+        console.warn("[parent-link] failed auth-user lookup", e);
+      }
+
+      // Reuse existing pending invite if present (prevents spam/duplicates)
+      const { data: existing } = await supabaseAdmin
+        .from("parent_link_invitations")
+        .select("*")
+        .eq("parent_id", parentId)
         .eq("email", normalizedEmail)
-        .eq("role", "player")
-        .single();
+        .eq("status", "pending")
+        .maybeSingle();
 
-      if (playerError && playerStatus !== 406) {
-        throw playerError;
-      }
+      let inviteRow: ParentLinkInvitationRow;
 
-      if (!player) {
-        return res
-          .status(404)
-          .json({ error: "No player found with that email" });
-      }
+      if (existing) {
+        inviteRow = existing as ParentLinkInvitationRow;
+      } else {
+        const token = randomUUID();
+        const expiresAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
 
-      if (!player.auth_user_id) {
-        return res.status(400).json({
-          error:
-            "That player does not have a login yet. Use 'Add Player' instead for parent-managed accounts."
-        });
-      }
-
-      // Check if already linked
-      const { data: existingLinks, error: existingError } =
-        await supabaseAdmin
-          .from("player_parent_links")
-          .select("player_id")
-          .eq("parent_id", parentId)
-          .eq("player_id", player.id);
-
-      if (existingError) {
-        throw existingError;
-      }
-
-      let createdNewLink = false;
-
-      if (!existingLinks || existingLinks.length === 0) {
-        const { error: linkError } = await supabaseAdmin
-          .from("player_parent_links")
+        const { data: created, error: createErr } = await supabaseAdmin
+          .from("parent_link_invitations")
           .insert({
             parent_id: parentId,
-            player_id: player.id
-          });
+            email: normalizedEmail,
+            first_name: first_name ?? null,
+            last_name: last_name ?? null,
+            invite_token: token,
+            expires_at: expiresAt
+          })
+          .select("*")
+          .single();
 
-        if (linkError) {
-          throw linkError;
-        }
-        createdNewLink = true;
+        if (createErr) throw createErr;
+        inviteRow = created as ParentLinkInvitationRow;
       }
 
-      const playerName =
-        `${player.first_name ?? ""} ${
-          player.last_name ?? ""
-        }`.trim() || player.email || "Your player profile";
+      // Email: tell player to log in and accept in-dashboard (NOT auto accept)
+      const inviteTokenParam = encodeURIComponent(inviteRow.invite_token);
+      const emailParam = encodeURIComponent(normalizedEmail);
 
-      // Fire-and-forget notification email to the player
-      if (player.email) {
-        void sendParentLinkExistingEmail({
-          to: player.email,
-          parentName,
-          playerName,
-          dashboardUrl: `${ENV.appBaseUrl}/dashboard`
+      const loginUrlExisting = `${ENV.appBaseUrl}/login?email=${emailParam}&parentInviteToken=${inviteTokenParam}`;
+      const loginUrlNew = `${ENV.appBaseUrl}/login?mode=signup&email=${emailParam}&parentInviteToken=${inviteTokenParam}`;
+
+      // ✅ You will implement this email helper (see section C below)
+      void sendParentLinkInviteEmail({
+        kind: hasExistingAuthUser ? "existing" : "new",
+        to: normalizedEmail,
+        parentName,
+        inviteUrl: hasExistingAuthUser ? loginUrlExisting : loginUrlNew
+      });
+
+      return res.json({
+        message:
+          "Invite sent. The player must accept the parent link from their dashboard.",
+        invitation: {
+          id: inviteRow.id,
+          email: inviteRow.email,
+          firstName: inviteRow.first_name,
+          lastName: inviteRow.last_name,
+          status: inviteRow.status,
+          inviteToken: inviteRow.invite_token,
+          createdAt: inviteRow.created_at,
+          expiresAt: inviteRow.expires_at
+        }
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+router.get(
+  "/profiles/:profileId/parent-link-invitations",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { profileId } = req.params;
+      const status = String(req.query.status || "pending").toLowerCase();
+
+      const { data: profile, error: profileError } = await supabaseAdmin
+        .from("profiles")
+        .select("id, email, role, first_name, last_name")
+        .eq("id", profileId)
+        .single();
+
+      if (profileError) throw profileError;
+      if (!profile || profile.role !== "player") return res.json([]);
+
+      const email = String(profile.email || "").trim().toLowerCase();
+      if (!email) return res.json([]);
+
+      let query = supabaseAdmin
+        .from("parent_link_invitations")
+        .select("*")
+        .eq("email", email);
+
+      if (status !== "all") query = query.eq("status", status);
+
+      const { data: invites, error } = await query;
+      if (error) throw error;
+
+      const now = new Date();
+
+      const pendingValid = (invites ?? []).filter((i: any) => {
+        if (i.status !== "pending") return false;
+        if (!i.expires_at) return true;
+        const exp = new Date(i.expires_at);
+        return !Number.isNaN(exp.getTime()) && exp > now;
+      });
+
+      // Load parent names for display
+      const parentIds = Array.from(new Set(pendingValid.map((i: any) => i.parent_id)));
+      let parentMap = new Map<string, any>();
+      if (parentIds.length) {
+        const { data: parents, error: pErr } = await supabaseAdmin
+          .from("profiles")
+          .select("id, first_name, last_name, email")
+          .in("id", parentIds);
+        if (pErr) throw pErr;
+        parentMap = new Map((parents ?? []).map((p: any) => [p.id, p]));
+      }
+
+      return res.json(
+        pendingValid.map((i: any) => {
+          const parent = parentMap.get(i.parent_id);
+          const parentName =
+            `${parent?.first_name ?? ""} ${parent?.last_name ?? ""}`.trim() ||
+            parent?.email ||
+            "Parent";
+
+          return {
+            id: i.id,
+            parentId: i.parent_id,
+            parentName,
+            parentEmail: parent?.email ?? null,
+            email: i.email,
+            firstName: i.first_name ?? null,
+            lastName: i.last_name ?? null,
+            status: i.status,
+            inviteToken: i.invite_token,
+            createdAt: i.created_at,
+            expiresAt: i.expires_at ?? null
+          };
+        })
+      );
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+router.post(
+  "/parent-link-invitations/:token/accept",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { token } = req.params;
+      const { profileId } = req.body as { profileId?: string };
+
+      if (!token) return res.status(400).json({ error: "token is required" });
+      if (!profileId) return res.status(400).json({ error: "profileId is required" });
+
+      const { data: invite, error: invErr } = await supabaseAdmin
+        .from("parent_link_invitations")
+        .select("*")
+        .eq("invite_token", token)
+        .single();
+
+      if (invErr) throw invErr;
+      if (!invite) return res.status(404).json({ error: "Invitation not found" });
+
+      if (invite.status !== "pending") {
+        return res.status(400).json({ error: `Invitation is not pending (status: ${invite.status})` });
+      }
+
+      if (invite.expires_at && new Date(invite.expires_at) < new Date()) {
+        return res.status(400).json({ error: "Invitation has expired" });
+      }
+
+      const { data: acceptor, error: accErr } = await supabaseAdmin
+        .from("profiles")
+        .select("id, role, email")
+        .eq("id", profileId)
+        .single();
+
+      if (accErr) throw accErr;
+      if (!acceptor || acceptor.role !== "player") {
+        return res.status(400).json({ error: "Only player accounts can accept parent link invites" });
+      }
+
+      const acceptorEmail = String(acceptor.email || "").trim().toLowerCase();
+      const inviteEmail = String(invite.email || "").trim().toLowerCase();
+
+      if (!acceptorEmail || acceptorEmail !== inviteEmail) {
+        return res.status(403).json({
+          error: "This invite was sent to a different email. Sign in with the invited email."
         });
       }
 
+      // Create link (idempotent if you added the unique constraint)
+      const { error: linkErr } = await supabaseAdmin
+        .from("player_parent_links")
+        .upsert(
+          { parent_id: invite.parent_id, player_id: acceptor.id },
+          { onConflict: "parent_id,player_id" } as any
+        );
+
+      if (linkErr) throw linkErr;
+
+      // Mark accepted
+      const { data: updated, error: updErr } = await supabaseAdmin
+        .from("parent_link_invitations")
+        .update({ status: "accepted", accepted_player_id: acceptor.id })
+        .eq("id", invite.id)
+        .select("*")
+        .single();
+
+      if (updErr) throw updErr;
+
       return res.json({
-        message: createdNewLink
-          ? "Player linked to your parent account. A notification email was sent to the player."
-          : "Player was already linked to your parent account. A notification email was sent to the player.",
-        player
+        id: updated.id,
+        status: updated.status,
+        parentId: updated.parent_id,
+        playerId: acceptor.id
       });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+router.get(
+  "/parents/:parentId/parent-link-invitations",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { parentId } = req.params;
+
+      const { data: parent, error: parentError } = await supabaseAdmin
+        .from("profiles")
+        .select("id, role")
+        .eq("id", parentId)
+        .single();
+
+      if (parentError) throw parentError;
+      if (!parent || parent.role !== "parent") return res.status(400).json({ error: "Invalid parent" });
+
+      const { data: invites, error } = await supabaseAdmin
+        .from("parent_link_invitations")
+        .select("*")
+        .eq("parent_id", parentId)
+        .eq("status", "pending")
+        .order("created_at", { ascending: false });
+
+      if (error) throw error;
+
+      return res.json(
+        (invites ?? []).map((i: any) => ({
+          id: i.id,
+          email: i.email,
+          firstName: i.first_name ?? null,
+          lastName: i.last_name ?? null,
+          status: i.status,
+          inviteToken: i.invite_token,
+          createdAt: i.created_at,
+          expiresAt: i.expires_at ?? null
+        }))
+      );
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+router.post(
+  "/parent-link-invitations/:invitationId/resend",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { invitationId } = req.params;
+      const { requesterProfileId } = req.body as { requesterProfileId?: string };
+
+      if (!requesterProfileId) {
+        return res.status(400).json({ error: "requesterProfileId is required" });
+      }
+
+      const { data: invite, error: invErr } = await supabaseAdmin
+        .from("parent_link_invitations")
+        .select("*")
+        .eq("id", invitationId)
+        .single();
+
+      if (invErr) throw invErr;
+      if (!invite) return res.status(404).json({ error: "Invitation not found" });
+
+      if (invite.parent_id !== requesterProfileId) {
+        return res.status(403).json({ error: "Not authorized to resend this invite" });
+      }
+
+      if (invite.status !== "pending") {
+        return res.status(400).json({ error: `Invite not pending (status: ${invite.status})` });
+      }
+
+      if (invite.expires_at && new Date(invite.expires_at) < new Date()) {
+        return res.status(400).json({ error: "Invitation has expired" });
+      }
+
+      // Load parent display name
+      const { data: parent } = await supabaseAdmin
+        .from("profiles")
+        .select("first_name, last_name, email")
+        .eq("id", requesterProfileId)
+        .single();
+
+      const parentName =
+        `${parent?.first_name ?? ""} ${parent?.last_name ?? ""}`.trim() ||
+        parent?.email ||
+        "A parent";
+
+      // Check if invited email has existing auth user
+      let hasExistingAuthUser = false;
+      try {
+        const { data: profiles } = await supabaseAdmin
+          .from("profiles")
+          .select("auth_user_id, role")
+          .eq("email", invite.email)
+          .eq("role", "player");
+        hasExistingAuthUser = !!(profiles ?? []).find((p: any) => p.auth_user_id);
+      } catch {}
+
+      const inviteTokenParam = encodeURIComponent(invite.invite_token);
+      const emailParam = encodeURIComponent(invite.email);
+
+      const loginUrlExisting = `${ENV.appBaseUrl}/login?email=${emailParam}&parentInviteToken=${inviteTokenParam}`;
+      const loginUrlNew = `${ENV.appBaseUrl}/login?mode=signup&email=${emailParam}&parentInviteToken=${inviteTokenParam}`;
+
+      void sendParentLinkInviteEmail({
+        kind: hasExistingAuthUser ? "existing" : "new",
+        to: invite.email,
+        parentName,
+        inviteUrl: hasExistingAuthUser ? loginUrlExisting : loginUrlNew
+      });
+
+      return res.json({ ok: true, message: "Invite resent" });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+router.get(
+  "/players/:playerId/parents",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { playerId } = req.params;
+
+      const { data: links, error: linksErr } = await supabaseAdmin
+        .from("player_parent_links")
+        .select("parent_id")
+        .eq("player_id", playerId);
+
+      if (linksErr) throw linksErr;
+
+      const parentIds = (links ?? []).map((l: any) => l.parent_id).filter(Boolean);
+      if (!parentIds.length) return res.json([]);
+
+      const { data: parents, error: pErr } = await supabaseAdmin
+        .from("profiles")
+        .select("id, first_name, last_name, email, role")
+        .in("id", parentIds);
+
+      if (pErr) throw pErr;
+
+      return res.json(
+        (parents ?? []).map((p: any) => ({
+          id: p.id,
+          firstName: p.first_name ?? null,
+          lastName: p.last_name ?? null,
+          email: p.email ?? null
+        }))
+      );
     } catch (err) {
       next(err);
     }

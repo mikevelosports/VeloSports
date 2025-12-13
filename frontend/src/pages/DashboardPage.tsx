@@ -14,9 +14,15 @@ import {
   addChildPlayerForParent,
   inviteExistingPlayerToParent,
   unlinkChildPlayer,
-  type ParentChildPlayer
+  fetchPendingParentLinkInvitations,
+  acceptParentLinkInvitation,
+  fetchPendingPlayerInvites,
+  resendParentLinkInvitation,
+  type ParentChildPlayer,
+  type PendingParentLinkInvitation,
+  type PendingPlayerInvite
 } from "../api/profiles";
-import { API_BASE_URL } from "../api/client";
+
 import {
   fetchTeamsForProfile,
   fetchTeamDetail,
@@ -26,6 +32,7 @@ import {
   type PendingTeamInvitation
 } from "../api/teams";
 import type { TeamSummary, TeamDetail, TeamMember } from "../api/teams";
+import { apiFetch } from "../api/client";
 
 
 // ⬇️ NEW: app logo assets
@@ -105,24 +112,24 @@ interface UpcomingSessionSummary {
 }
 
 
-/**
- * Lightweight wrapper around /players/:playerId/stats
- * for dashboard usage.
- */
 async function fetchPlayerStatsSummary(
   playerId: string
 ): Promise<PlayerStatsSummary | null> {
-  const res = await fetch(`${API_BASE_URL}/players/${playerId}/stats`);
-  if (res.status === 404) {
-    return null;
-  }
+  const res = await apiFetch(`/players/${playerId}/stats`);
+  if (res.status === 404) return null;
+
+  const raw = await res.text().catch(() => "");
   if (!res.ok) {
-    const text = await res.text().catch(() => "");
     throw new Error(
-      `Failed to load player stats: ${res.status} ${text.slice(0, 200)}`
+      `Failed to load player stats: ${res.status} ${raw.slice(0, 200)}`
     );
   }
-  return res.json();
+
+  try {
+    return JSON.parse(raw) as PlayerStatsSummary;
+  } catch {
+    throw new Error(`Stats response was not JSON: ${raw.slice(0, 80)}`);
+  }
 }
 
 // --- Shared helpers copied from MyProgramPage (needed by upcoming-session helper) ---
@@ -952,6 +959,34 @@ const DashboardPage: React.FC = () => {
   const [pendingTeamInvitesSuccess, setPendingTeamInvitesSuccess] = useState<string | null>(null);
   const [acceptingInviteToken, setAcceptingInviteToken] = useState<string | null>(null);
 
+  // ---- Player: pending parent-link invites (player accepts) ----
+  const [pendingParentLinkInvites, setPendingParentLinkInvites] = useState<
+    PendingParentLinkInvitation[]
+  >([]);
+  const [pendingParentLinkInvitesLoading, setPendingParentLinkInvitesLoading] =
+    useState(false);
+  const [pendingParentLinkInvitesError, setPendingParentLinkInvitesError] =
+    useState<string | null>(null);
+  const [pendingParentLinkInvitesSuccess, setPendingParentLinkInvitesSuccess] =
+    useState<string | null>(null);
+  const [acceptingParentLinkToken, setAcceptingParentLinkToken] = useState<
+    string | null
+  >(null);
+
+  // ---- Parent: pending player-link invites (parent can resend) ----
+  const [pendingPlayerLinkInvites, setPendingPlayerLinkInvites] = useState<
+    PendingPlayerInvite[]
+  >([]);
+  const [pendingPlayerLinkInvitesLoading, setPendingPlayerLinkInvitesLoading] =
+    useState(false);
+  const [pendingPlayerLinkInvitesError, setPendingPlayerLinkInvitesError] =
+    useState<string | null>(null);
+  const [pendingPlayerLinkInvitesSuccess, setPendingPlayerLinkInvitesSuccess] =
+    useState<string | null>(null);
+  const [resendingParentLinkInviteId, setResendingParentLinkInviteId] = useState<
+    string | null
+  >(null);
+
 
   // ---- Player/parent dashboard stats (bat speed gain, sessions) ----
   const [playerStatsForDashboard, setPlayerStatsForDashboard] =
@@ -1043,6 +1078,83 @@ const DashboardPage: React.FC = () => {
     };
   }, [isParent, currentProfile.id, selectedPlayerId]);
 
+  useEffect(() => {
+    if (!currentProfile?.id) return;
+
+    if (!isPlayer) {
+      setPendingParentLinkInvites([]);
+      return;
+    }
+
+    if (activeTab !== "dashboard" || shellView !== "main") return;
+
+    let cancelled = false;
+
+    const loadParentLinkInvites = async () => {
+      try {
+        setPendingParentLinkInvitesLoading(true);
+        setPendingParentLinkInvitesError(null);
+
+        const invites = await fetchPendingParentLinkInvitations(currentProfile.id);
+        if (cancelled) return;
+
+        setPendingParentLinkInvites(invites);
+      } catch (err: any) {
+        if (cancelled) return;
+        setPendingParentLinkInvitesError(
+          err?.message ?? "Failed to load parent link invites"
+        );
+      } finally {
+        if (!cancelled) setPendingParentLinkInvitesLoading(false);
+      }
+    };
+
+    loadParentLinkInvites();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentProfile?.id, isPlayer, activeTab, shellView]);
+
+  useEffect(() => {
+    if (!currentProfile?.id) return;
+
+    if (!isParent) {
+      setPendingPlayerLinkInvites([]);
+      return;
+    }
+
+    if (activeTab !== "dashboard" || shellView !== "main") return;
+
+    let cancelled = false;
+
+    const loadPendingSentInvites = async () => {
+      try {
+        setPendingPlayerLinkInvitesLoading(true);
+        setPendingPlayerLinkInvitesError(null);
+
+        const invites = await fetchPendingPlayerInvites(currentProfile.id);
+        if (cancelled) return;
+
+        setPendingPlayerLinkInvites(invites);
+      } catch (err: any) {
+        if (cancelled) return;
+        setPendingPlayerLinkInvitesError(
+          err?.message ?? "Failed to load pending player invites"
+        );
+      } finally {
+        if (!cancelled) setPendingPlayerLinkInvitesLoading(false);
+      }
+    };
+
+    loadPendingSentInvites();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentProfile?.id, isParent, activeTab, shellView]);
+
+  
   const selectedPlayer: ParentChildPlayer | null =
     isParent && selectedPlayerId
       ? parentPlayers.find((p) => p.id === selectedPlayerId) ?? null
@@ -1570,12 +1682,23 @@ const DashboardPage: React.FC = () => {
 
     try {
       setInviteSaving(true);
-      const resp = await inviteExistingPlayerToParent(
-        currentProfile.id,
-        email
-      );
-      setInviteSuccess(resp.message ?? "Invite recorded.");
 
+      // Sends the invite (backend creates/uses pending invitation + sends email)
+      const resp = await inviteExistingPlayerToParent(currentProfile.id, email);
+
+      setInviteSuccess(resp.message ?? "Invite sent.");
+      setInviteEmail("");
+
+      // Refresh pending invites so parents immediately see it in the list
+      try {
+        const invites = await fetchPendingPlayerInvites(currentProfile.id);
+        setPendingPlayerLinkInvites(invites);
+      } catch (refreshErr) {
+        console.warn("Failed to refresh pending player invites", refreshErr);
+      }
+
+      // NOTE: backend currently returns { message, invitation } (no `player`),
+      // so resp.player will usually be undefined. Leaving this safe block in case you add it later.
       if (resp.player) {
         setParentPlayers((prev) => {
           const exists = prev.some((p) => p.id === resp.player!.id);
@@ -1584,8 +1707,6 @@ const DashboardPage: React.FC = () => {
         });
         setSelectedPlayerId(resp.player.id);
       }
-
-      setInviteEmail("");
     } catch (err: any) {
       setInviteError(err?.message ?? "Failed to invite player");
     } finally {
@@ -1593,6 +1714,52 @@ const DashboardPage: React.FC = () => {
     }
   };
 
+
+  const handleAcceptParentLinkInvite = async (inviteToken: string) => {
+    if (!currentProfile?.id) return;
+
+    try {
+      setAcceptingParentLinkToken(inviteToken);
+      setPendingParentLinkInvitesError(null);
+      setPendingParentLinkInvitesSuccess(null);
+
+      await acceptParentLinkInvitation(inviteToken, currentProfile.id);
+
+      // Remove it locally right away
+      setPendingParentLinkInvites((prev) =>
+        prev.filter((i) => i.inviteToken !== inviteToken)
+      );
+
+      setPendingParentLinkInvitesSuccess("Parent link accepted.");
+    } catch (err: any) {
+      setPendingParentLinkInvitesError(
+        err?.message ?? "Failed to accept parent link invite"
+      );
+    } finally {
+      setAcceptingParentLinkToken(null);
+    }
+  };
+
+
+  const handleResendParentLinkInvite = async (invitationId: string) => {
+    if (!isParent || !currentProfile?.id) return;
+
+    try {
+      setResendingParentLinkInviteId(invitationId);
+      setPendingPlayerLinkInvitesError(null);
+      setPendingPlayerLinkInvitesSuccess(null);
+
+      await resendParentLinkInvitation(invitationId, currentProfile.id);
+
+      setPendingPlayerLinkInvitesSuccess("Invite resent.");
+    } catch (err: any) {
+      setPendingPlayerLinkInvitesError(err?.message ?? "Failed to resend invite");
+    } finally {
+      setResendingParentLinkInviteId(null);
+    }
+  };
+
+  
   const handleAcceptTeamInvite = async (inviteToken: string) => {
     if (!currentProfile?.id) return;
 
@@ -2147,6 +2314,90 @@ const DashboardPage: React.FC = () => {
               </button>
             </form>
           </div>
+          {/* Pending player link invites (parent) */}
+          <div
+            style={{
+              borderRadius: "12px",
+              border: `1px solid ${CARD_BORDER}`,
+              background: CARD_BG,
+              boxShadow: CARD_SHADOW,
+              padding: "1rem"
+            }}
+          >
+            <h3 style={{ margin: "0 0 0.4rem", fontSize: "1rem", color: PRIMARY_TEXT }}>
+              Pending Player Invites
+            </h3>
+            <p style={{ margin: "0 0 0.75rem", fontSize: "0.85rem", color: MUTED_TEXT }}>
+              These players haven&apos;t accepted yet. They must log in as the invited email and accept from their Dashboard.
+            </p>
+
+            {pendingPlayerLinkInvitesLoading ? (
+              <div style={{ fontSize: "0.85rem", color: MUTED_TEXT }}>Loading invites…</div>
+            ) : pendingPlayerLinkInvitesError ? (
+              <div style={{ fontSize: "0.85rem", color: "#f87171" }}>
+                {pendingPlayerLinkInvitesError}
+              </div>
+            ) : pendingPlayerLinkInvites.length === 0 ? (
+              <div style={{ fontSize: "0.85rem", color: MUTED_TEXT }}>
+                No pending invites.
+              </div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
+                {pendingPlayerLinkInvites.map((inv) => (
+                  <div
+                    key={inv.id}
+                    style={{
+                      borderRadius: "10px",
+                      border: `1px solid ${CARD_BORDER}`,
+                      padding: "0.6rem 0.75rem",
+                      background: CARD_BG,
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      gap: "0.75rem",
+                      flexWrap: "wrap"
+                    }}
+                  >
+                    <div>
+                      <div style={{ fontSize: "0.9rem", color: PRIMARY_TEXT, fontWeight: 700 }}>
+                        {inv.email}
+                      </div>
+                      {inv.expiresAt && (
+                        <div style={{ fontSize: "0.75rem", color: MUTED_TEXT, marginTop: "0.15rem" }}>
+                          Expires: {formatDateShort(inv.expiresAt)}
+                        </div>
+                      )}
+                    </div>
+
+                    <button
+                      type="button"
+                      disabled={resendingParentLinkInviteId === inv.id}
+                      onClick={() => handleResendParentLinkInvite(inv.id)}
+                      style={{
+                        padding: "0.35rem 0.9rem",
+                        borderRadius: "999px",
+                        border: `1px solid ${ACCENT}`,
+                        background: "transparent",
+                        color: ACCENT,
+                        fontWeight: 800,
+                        fontSize: "0.85rem",
+                        cursor: resendingParentLinkInviteId === inv.id ? "not-allowed" : "pointer",
+                        opacity: resendingParentLinkInviteId === inv.id ? 0.6 : 1
+                      }}
+                    >
+                      {resendingParentLinkInviteId === inv.id ? "Resending..." : "Resend"}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {pendingPlayerLinkInvitesSuccess && (
+              <div style={{ marginTop: "0.6rem", fontSize: "0.85rem", color: ACCENT }}>
+                {pendingPlayerLinkInvitesSuccess}
+              </div>
+            )}
+          </div>
 
           {/* Info / coming soon */}
           <div
@@ -2205,6 +2456,106 @@ const DashboardPage: React.FC = () => {
             gap: "1rem"
           }}
         >
+          {/* Parent Link Invites (player) */}
+          <div
+            style={{
+              borderRadius: "12px",
+              border: `1px solid ${CARD_BORDER}`,
+              background: CARD_BG,
+              boxShadow: CARD_SHADOW,
+              padding: "1rem"
+            }}
+          >
+            <div style={{ fontSize: "1rem", color: PRIMARY_TEXT, fontWeight: 700 }}>
+              Parent Link Invites
+            </div>
+            <div style={{ fontSize: "0.8rem", color: MUTED_TEXT, marginTop: "0.2rem" }}>
+              If a parent invited you to link accounts, accept here (inside the app).
+            </div>
+
+            {pendingParentLinkInvitesLoading ? (
+              <div style={{ marginTop: "0.6rem", fontSize: "0.85rem", color: MUTED_TEXT }}>
+                Loading invites…
+              </div>
+            ) : pendingParentLinkInvitesError ? (
+              <div style={{ marginTop: "0.6rem", fontSize: "0.85rem", color: "#f87171" }}>
+                {pendingParentLinkInvitesError}
+              </div>
+            ) : pendingParentLinkInvites.length === 0 ? (
+              <div style={{ marginTop: "0.6rem", fontSize: "0.85rem", color: MUTED_TEXT }}>
+                No pending parent link invites.
+              </div>
+            ) : (
+              <div
+                style={{
+                  marginTop: "0.75rem",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "0.6rem"
+                }}
+              >
+                {pendingParentLinkInvites.map((inv) => (
+                  <div
+                    key={inv.id}
+                    style={{
+                      borderRadius: "10px",
+                      border: `1px solid ${CARD_BORDER}`,
+                      padding: "0.6rem 0.75rem",
+                      background: CARD_BG,
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      gap: "0.75rem",
+                      flexWrap: "wrap"
+                    }}
+                  >
+                    <div>
+                      <div style={{ fontSize: "0.9rem", color: PRIMARY_TEXT, fontWeight: 700 }}>
+                        {inv.parentName}
+                      </div>
+                      {inv.parentEmail && (
+                        <div style={{ fontSize: "0.8rem", color: MUTED_TEXT }}>
+                          {inv.parentEmail}
+                        </div>
+                      )}
+                      {inv.expiresAt && (
+                        <div style={{ fontSize: "0.75rem", color: MUTED_TEXT, marginTop: "0.15rem" }}>
+                          Expires: {formatDateShort(inv.expiresAt)}
+                        </div>
+                      )}
+                    </div>
+
+                    <button
+                      type="button"
+                      disabled={acceptingParentLinkToken === inv.inviteToken}
+                      onClick={() => handleAcceptParentLinkInvite(inv.inviteToken)}
+                      style={{
+                        padding: "0.35rem 0.9rem",
+                        borderRadius: "999px",
+                        border: "none",
+                        cursor:
+                          acceptingParentLinkToken === inv.inviteToken ? "not-allowed" : "pointer",
+                        background: ACCENT,
+                        color: "#0f172a",
+                        fontWeight: 800,
+                        fontSize: "0.85rem",
+                        opacity: acceptingParentLinkToken === inv.inviteToken ? 0.6 : 1
+                      }}
+                    >
+                      {acceptingParentLinkToken === inv.inviteToken ? "Accepting..." : "Accept"}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {pendingParentLinkInvitesSuccess && (
+              <div style={{ marginTop: "0.6rem", fontSize: "0.85rem", color: ACCENT }}>
+                {pendingParentLinkInvitesSuccess}
+              </div>
+            )}
+          </div>
+
           {/* Row 1: Bat speed gains + Recent medals (2-column) */}
           <div
             style={{
@@ -3841,59 +4192,59 @@ const DashboardPage: React.FC = () => {
       );
     }
 
-    if (isParent) {
-      if (!selectedPlayer) {
-        return (
-          <section
-            style={{
-              marginTop: "0.5rem",
-              borderRadius: "12px",
-              border: `1px solid ${CARD_BORDER}`,
-              background: CARD_BG,
-              boxShadow: CARD_SHADOW,
-              padding: "1rem",
-              color: PRIMARY_TEXT
-            }}
-          >
-            <h2
-              style={{
-                margin: "0 0 0.4rem",
-                fontSize: "1.1rem"
-              }}
-            >
-              My Program
-            </h2>
-            <p
-              style={{
-                margin: 0,
-                fontSize: "0.9rem",
-                color: MUTED_TEXT
-              }}
-            >
-              Select or add a player above to view their Velo program.
-            </p>
-          </section>
-        );
-      }
-
-      return (
-        <section
+if (isParent) {
+  if (!selectedPlayer) {
+    return (
+      <section
+        style={{
+          marginTop: "0.5rem",
+          borderRadius: "12px",
+          border: `1px solid ${CARD_BORDER}`,
+          background: CARD_BG,
+          boxShadow: CARD_SHADOW,
+          padding: "1rem",
+          color: PRIMARY_TEXT
+        }}
+      >
+        <h2
           style={{
-            marginTop: "0.5rem"
+            margin: "0 0 0.4rem",
+            fontSize: "1.1rem"
           }}
         >
-          <MyProgramPage
-            onBack={() => setActiveTab("dashboard")}
-            onStartProtocolFromProgram={(protocolTitle) => {
-              setProgramProtocolTitle(protocolTitle);
-              setShellView("start-session");
-            }}
-            // Parent view: show the program for the selected child.
-            playerIdOverride={selectedPlayer.id}
-          />
-        </section>
-      );
-    }
+          My Program
+        </h2>
+        <p
+          style={{
+            margin: 0,
+            fontSize: "0.9rem",
+            color: MUTED_TEXT
+          }}
+        >
+          Select or add a player above to view their Velo program.
+        </p>
+      </section>
+    );
+  }
+
+  return (
+    <section
+      style={{
+        marginTop: "0.5rem"
+      }}
+    >
+      <MyProgramPage
+        onBack={() => setActiveTab("dashboard")}
+        onStartProtocolFromProgram={(protocolTitle) => {
+          setProgramProtocolTitle(protocolTitle);
+          setShellView("start-session");
+        }}
+        playerIdOverride={selectedPlayer.id}
+      />
+    </section>
+  );
+}
+
 
     // Player view
     return (

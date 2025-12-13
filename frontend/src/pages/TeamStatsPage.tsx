@@ -9,6 +9,8 @@ import {
   type TeamMember
 } from "../api/teams";
 import StatsPage from "./StatsPage";
+import { apiFetch } from "../api/client";
+
 
 const PRIMARY_TEXT = "var(--velo-text-primary)";
 const MUTED_TEXT = "var(--velo-text-muted)";
@@ -50,23 +52,32 @@ interface PlayerStats {
   sessionCounts?: SessionCounts;
 }
 
-/**
- * Minimal stats fetcher for Team Stats.
- * If the player has no stats row yet, we treat 404 as "no stats".
- */
 async function fetchPlayerStats(playerId: string): Promise<PlayerStats | null> {
-  const res = await fetch(`/api/players/${playerId}/stats`);
-  if (res.status === 404) {
-    return null;
-  }
+  // IMPORTANT: use apiFetch so it:
+  //  - resolves to the correct backend base URL in production
+  //  - attaches the Supabase Authorization token
+  const res = await apiFetch(`/players/${playerId}/stats`);
+
+  if (res.status === 404) return null;
+
+  const raw = await res.text().catch(() => "");
+
   if (!res.ok) {
     throw new Error(
-      `Failed to load player stats: ${res.status} ${res.statusText}`
+      `Failed to load player stats: ${res.status} ${raw.slice(0, 200)}`
     );
   }
-  const data = (await res.json()) as PlayerStats;
-  return data;
+
+  // Guard: if HTML ever comes back, you'll see it immediately in the error
+  try {
+    return JSON.parse(raw) as PlayerStats;
+  } catch {
+    throw new Error(
+      `Player stats response was not JSON. Got: ${raw.slice(0, 80)}`
+    );
+  }
 }
+
 
 type SortKey =
   | "batSpeed"

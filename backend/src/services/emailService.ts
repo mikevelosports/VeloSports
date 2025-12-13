@@ -131,6 +131,47 @@ interface SendSupportContactEmailArgs {
   source?: string;
 }
 
+export async function sendParentLinkInviteEmail(args: {
+  kind: "existing" | "new";
+  to: string;
+  parentName: string;
+  inviteUrl: string;
+}): Promise<void> {
+  const type =
+    args.kind === "existing"
+      ? "parent_link_invite_existing"
+      : "parent_link_invite_new";
+
+  try {
+    const { error } = await supabaseAdmin.functions.invoke("send-app-email", {
+      body: {
+        secret: ENV.appEmailFunctionSecret,
+        type,
+        to: args.to,
+        parentName: args.parentName,
+        inviteUrl: args.inviteUrl,
+        // Optional: include for "new" emails (your Edge Function will fallback to `to` anyway)
+        invitedEmail: args.kind === "new" ? args.to : undefined
+      }
+    });
+
+    if (error) {
+      console.error("[emailService] Failed to send parent link invite email", {
+        to: args.to,
+        type,
+        error
+      });
+    }
+  } catch (err) {
+    console.error(
+      "[emailService] Unexpected error while sending parent link invite email",
+      err
+    );
+  }
+}
+
+
+
 export async function sendSupportContactEmail(
   args: SendSupportContactEmailArgs
 ): Promise<void> {

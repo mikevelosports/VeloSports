@@ -24,6 +24,8 @@ type EmailType =
   | "team_invite_existing"
   | "team_invite_new"
   | "parent_link_existing"
+  | "parent_link_invite_existing"
+  | "parent_link_invite_new"
   | "support_contact";
 
 interface BasePayload {
@@ -58,6 +60,19 @@ interface ParentLinkExistingPayload extends BasePayload {
   dashboardUrl: string;
 }
 
+interface ParentLinkInviteExistingPayload extends BasePayload {
+  type: "parent_link_invite_existing";
+  parentName: string;
+  inviteUrl: string;
+}
+
+interface ParentLinkInviteNewPayload extends BasePayload {
+  type: "parent_link_invite_new";
+  parentName: string;
+  inviteUrl: string;
+  invitedEmail?: string;
+}
+
 interface SupportContactPayload extends BasePayload {
   type: "support_contact";
   fromEmail?: string;
@@ -74,6 +89,8 @@ type SendAppEmailPayload =
   | TeamInviteExistingPayload
   | TeamInviteNewPayload
   | ParentLinkExistingPayload
+  | ParentLinkInviteExistingPayload
+  | ParentLinkInviteNewPayload
   | SupportContactPayload;
 
 // ---- Helpers ----
@@ -122,15 +139,9 @@ function buildTeamInviteExistingHtml(p: TeamInviteExistingPayload) {
 
   const html = `
     <div style="font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; line-height: 1.5; color: #0f172a;">
-      <h2 style="margin-bottom: 0.5rem;">Join ${escapeHtml(
-        safeTeam
-      )} on Velo</h2>
+      <h2 style="margin-bottom: 0.5rem;">Join ${escapeHtml(safeTeam)} on Velo</h2>
       <p>Hi there,</p>
-      <p><strong>${escapeHtml(
-        safeCoach
-      )}</strong> has invited you to join the team <strong>"${escapeHtml(
-    safeTeam
-  )}"</strong> in the Velo Sports app.</p>
+      <p><strong>${escapeHtml(safeCoach)}</strong> has invited you to join the team <strong>"${escapeHtml(safeTeam)}"</strong> in the Velo Sports app.</p>
 
       <p style="margin-top: 1rem;">
         Click the button below to sign in. After signing in, go to
@@ -165,7 +176,6 @@ function buildTeamInviteNewHtml(p: TeamInviteNewPayload) {
 
   const subject = `${safeCoach} invited you to join ${safeTeam} on Velo`;
 
-  // UPDATED: no auto-accept wording
   const text = [
     `${safeCoach} has invited you to join "${safeTeam}" in the Velo Sports app.`,
     "",
@@ -182,22 +192,12 @@ function buildTeamInviteNewHtml(p: TeamInviteNewPayload) {
 
   const html = `
     <div style="font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; line-height: 1.5; color: #0f172a;">
-      <h2 style="margin-bottom: 0.5rem;">You&apos;ve been invited to ${escapeHtml(
-        safeTeam
-      )}</h2>
+      <h2 style="margin-bottom: 0.5rem;">You&apos;ve been invited to ${escapeHtml(safeTeam)}</h2>
       <p>Hi there,</p>
-      <p><strong>${escapeHtml(
-        safeCoach
-      )}</strong> has invited you to join the team <strong>"${escapeHtml(
-    safeTeam
-  )}"</strong> in the Velo Sports app.</p>
+      <p><strong>${escapeHtml(safeCoach)}</strong> has invited you to join the team <strong>"${escapeHtml(safeTeam)}"</strong> in the Velo Sports app.</p>
 
-      <p style="margin-top: 1rem;">
-        Create your account using this email address:
-      </p>
-      <p style="margin: 0.4rem 0 1rem; font-weight: 600;">${escapeHtml(
-        invitedEmail
-      )}</p>
+      <p style="margin-top: 1rem;">Create your account using this email address:</p>
+      <p style="margin: 0.4rem 0 1rem; font-weight: 600;">${escapeHtml(invitedEmail)}</p>
 
       <p>
         After you create your account and sign in, open <strong>My Teams</strong> → <strong>Team Invites</strong> and click <strong>Accept</strong>.
@@ -241,9 +241,7 @@ function buildParentLinkExistingHtml(p: ParentLinkExistingPayload) {
       <h2 style="margin-bottom: 0.5rem;">Parent account linked to your profile</h2>
       <p>Hi there,</p>
       <p>
-        <strong>${escapeHtml(
-          safeParent
-        )}</strong> has linked their <strong>Velo parent account</strong> to
+        <strong>${escapeHtml(safeParent)}</strong> has linked their <strong>Velo parent account</strong> to
         <strong>${escapeHtml(safePlayer)}</strong>.
       </p>
       <p style="margin-top: 1rem;">
@@ -256,6 +254,104 @@ function buildParentLinkExistingHtml(p: ParentLinkExistingPayload) {
       </p>
       <p style="font-size: 0.9rem; color: #6b7280;">
         If you did not expect this, please contact Velo support.
+      </p>
+    </div>
+  `;
+
+  return { subject, text, html };
+}
+
+function buildParentLinkInviteExistingHtml(p: ParentLinkInviteExistingPayload) {
+  const safeParent = p.parentName || "A parent";
+  const url = p.inviteUrl || APP_BASE_URL;
+
+  const subject = `${safeParent} wants to link to your Velo player profile`;
+  const text = [
+    `${safeParent} wants to link their Velo parent account to your player profile.`,
+    "",
+    "To accept (inside the app):",
+    "1) Sign in to Velo",
+    "2) Go to your Dashboard",
+    "3) Find the Parent Request section",
+    "4) Click Accept",
+    "",
+    url,
+  ].join("\n");
+
+  const html = `
+    <div style="font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; line-height: 1.5; color: #0f172a;">
+      <h2 style="margin-bottom: 0.5rem;">Parent link request</h2>
+      <p>Hi there,</p>
+      <p>
+        <strong>${escapeHtml(safeParent)}</strong> wants to link their <strong>Velo parent account</strong> to your player profile.
+      </p>
+
+      <p style="margin-top: 1rem;">
+        Click below to sign in. After signing in, go to your <strong>Dashboard</strong> and accept the request.
+      </p>
+
+      <p style="margin: 1.25rem 0;">
+        <a href="${url}" style="display: inline-block; padding: 0.6rem 1.2rem; border-radius: 999px; background: #22c55e; color: #0f172a; text-decoration: none; font-weight: 600;">
+          Sign in to review request
+        </a>
+      </p>
+
+      <p style="font-size: 0.9rem; color: #6b7280;">
+        If the button doesn&apos;t work, copy and paste this link into your browser:<br />
+        <span style="word-break: break-all;">${url}</span>
+      </p>
+    </div>
+  `;
+
+  return { subject, text, html };
+}
+
+function buildParentLinkInviteNewHtml(p: ParentLinkInviteNewPayload) {
+  const safeParent = p.parentName || "A parent";
+  const url = p.inviteUrl || APP_BASE_URL;
+  const invitedEmail = p.invitedEmail || p.to;
+
+  const subject = `${safeParent} wants to link to your Velo player profile`;
+
+  const text = [
+    `${safeParent} wants to link their Velo parent account to your player profile.`,
+    "",
+    "To accept this request, first create your Velo account using this email address:",
+    invitedEmail,
+    "",
+    "Use the link below to get started:",
+    url,
+    "",
+    "After you create your account and sign in:",
+    "1) Go to Dashboard",
+    "2) Find the Parent Request section",
+    "3) Click Accept",
+  ].join("\n");
+
+  const html = `
+    <div style="font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; line-height: 1.5; color: #0f172a;">
+      <h2 style="margin-bottom: 0.5rem;">Create your account to accept</h2>
+      <p>Hi there,</p>
+      <p>
+        <strong>${escapeHtml(safeParent)}</strong> wants to link their <strong>Velo parent account</strong> to your player profile.
+      </p>
+
+      <p style="margin-top: 1rem;">Create your account using this email address:</p>
+      <p style="margin: 0.4rem 0 1rem; font-weight: 600;">${escapeHtml(invitedEmail)}</p>
+
+      <p>
+        After you create your account and sign in, open your <strong>Dashboard</strong> and accept the request.
+      </p>
+
+      <p style="margin: 1.25rem 0;">
+        <a href="${url}" style="display: inline-block; padding: 0.6rem 1.2rem; border-radius: 999px; background: #22c55e; color: #0f172a; text-decoration: none; font-weight: 600;">
+          Create account
+        </a>
+      </p>
+
+      <p style="font-size: 0.9rem; color: #6b7280;">
+        If the button doesn&apos;t work, copy and paste this link into your browser:<br />
+        <span style="word-break: break-all;">${url}</span>
       </p>
     </div>
   `;
@@ -292,12 +388,8 @@ function buildSupportContactHtml(p: SupportContactPayload) {
   const html = `
     <div style="font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; line-height: 1.5; color: #0f172a;">
       <h2 style="margin-bottom: 0.5rem;">New Velo support request</h2>
-      <p style="margin: 0.35rem 0;"><strong>From:</strong> ${escapeHtml(
-        nameLine
-      )}</p>
-      <p style="margin: 0.2rem 0;"><strong>Category:</strong> ${escapeHtml(
-        safeCategory
-      )}</p>
+      <p style="margin: 0.35rem 0;"><strong>From:</strong> ${escapeHtml(nameLine)}</p>
+      <p style="margin: 0.2rem 0;"><strong>Category:</strong> ${escapeHtml(safeCategory)}</p>
       ${
         profileRole || profileId || source
           ? `<p style="margin: 0.2rem 0; font-size: 0.9rem; color: #6b7280;">
@@ -313,9 +405,7 @@ function buildSupportContactHtml(p: SupportContactPayload) {
         <div style="font-size: 0.85rem; color: #6b7280; margin-bottom: 0.35rem;">
           Issue description
         </div>
-        <pre style="margin: 0; white-space: pre-wrap; font-size: 0.9rem; color: #111827;">${escapeHtml(
-          p.message
-        )}</pre>
+        <pre style="margin: 0; white-space: pre-wrap; font-size: 0.9rem; color: #111827;">${escapeHtml(p.message)}</pre>
       </div>
     </div>
   `;
@@ -404,6 +494,22 @@ serve(async (req) => {
 
       case "parent_link_existing": {
         const built = buildParentLinkExistingHtml(payload);
+        subject = built.subject;
+        text = built.text;
+        html = built.html;
+        break;
+      }
+
+      case "parent_link_invite_existing": {
+        const built = buildParentLinkInviteExistingHtml(payload);
+        subject = built.subject;
+        text = built.text;
+        html = built.html;
+        break;
+      }
+
+      case "parent_link_invite_new": {
+        const built = buildParentLinkInviteNewHtml(payload);
         subject = built.subject;
         text = built.text;
         html = built.html;

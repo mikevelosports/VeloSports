@@ -137,6 +137,131 @@ export async function unlinkChildPlayer(
   }
 }
 
+export interface PendingParentLinkInvitation {
+  id: string;
+  parentId: string;
+  parentName: string;
+  parentEmail: string | null;
+  email: string;
+  firstName: string | null;
+  lastName: string | null;
+  status: string;
+  inviteToken: string;
+  createdAt: string;
+  expiresAt: string | null;
+}
+
+export async function fetchPendingParentLinkInvitations(
+  profileId: string
+): Promise<PendingParentLinkInvitation[]> {
+  const res = await apiFetch(
+    `${API_BASE_URL}/profiles/${profileId}/parent-link-invitations?status=pending`
+  );
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Failed to load parent invites: ${res.status} ${text.slice(0, 200)}`);
+  }
+  return res.json();
+}
+
+export async function acceptParentLinkInvitation(
+  token: string,
+  profileId: string
+): Promise<{ id: string; status: string; parentId: string; playerId: string }> {
+  const res = await apiFetch(
+    `${API_BASE_URL}/parent-link-invitations/${token}/accept`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ profileId })
+    }
+  );
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Failed to accept parent invite: ${res.status} ${text.slice(0, 200)}`);
+  }
+  return res.json();
+}
+
+export interface PendingPlayerInvite {
+  id: string;
+  email: string;
+  firstName: string | null;
+  lastName: string | null;
+  status: string;
+  inviteToken: string;
+  createdAt: string;
+  expiresAt: string | null;
+}
+
+export async function fetchPendingPlayerInvites(
+  parentId: string
+): Promise<PendingPlayerInvite[]> {
+  const res = await apiFetch(
+    `${API_BASE_URL}/parents/${parentId}/parent-link-invitations`
+  );
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Failed to load pending player invites: ${res.status} ${text.slice(0, 200)}`);
+  }
+  return res.json();
+}
+
+export async function resendParentLinkInvitation(
+  invitationId: string,
+  requesterProfileId: string
+): Promise<void> {
+  const res = await apiFetch(
+    `${API_BASE_URL}/parent-link-invitations/${invitationId}/resend`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ requesterProfileId })
+    }
+  );
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Failed to resend invite: ${res.status} ${text.slice(0, 200)}`);
+  }
+}
+
+export async function invitePlayerToParent(
+  parentId: string,
+  body: { email: string; first_name?: string; last_name?: string }
+): Promise<{ message: string }> {
+  const res = await apiFetch(`${API_BASE_URL}/parents/${parentId}/invite-player`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body)
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Failed to invite player: ${res.status} ${text.slice(0, 200)}`);
+  }
+
+  return res.json();
+}
+
+export interface PlayerParentLink {
+  id: string;
+  firstName: string | null;
+  lastName: string | null;
+  email: string | null;
+}
+
+export async function fetchParentsForPlayer(
+  playerId: string
+): Promise<PlayerParentLink[]> {
+  const res = await apiFetch(`${API_BASE_URL}/players/${playerId}/parents`);
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Failed to load parent links: ${res.status} ${text.slice(0, 200)}`);
+  }
+  return res.json();
+}
+
+
 export interface InviteExistingPlayerResponse {
   message: string;
   player?: ParentChildPlayer;
